@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fondaco Plan DSL v0 (design/plan-dsl.md)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dsl_version", "plan_id", "question", "steps"],
+  "properties": {
+    "dsl_version": { "const": "v0" },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/query_step" },
+          { "$ref": "#/$defs/aggregate_step" },
+          { "$ref": "#/$defs/present_step" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "step_id": { "type": "string", "pattern": "^s[0-9]+$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 128 },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "enum": ["string", "int", "float", "bool", "date", "timestamp"] },
+        "value": { "type": ["string", "number", "boolean"] }
+      }
+    },
+    "query_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "template", "params"],
+      "properties": {
+        "id": { "$ref": "#/$defs/step_id" },
+        "type": { "const": "query" },
+        "template": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "params": {
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "additionalProperties": { "$ref": "#/$defs/param" }
+        }
+      }
+    },
+    "aggregate_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "input", "group_by", "ops"],
+      "properties": {
+        "id": { "$ref": "#/$defs/step_id" },
+        "type": { "const": "aggregate" },
+        "input": { "$ref": "#/$defs/step_id" },
+        "group_by": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/identifier" } },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "column", "as"],
+            "properties": {
+              "op": { "enum": ["count", "sum", "avg", "min", "max"] },
+              "column": {
+                "oneOf": [{ "$ref": "#/$defs/identifier" }, { "const": "*" }]
+              },
+              "as": { "$ref": "#/$defs/identifier" }
+            }
+          }
+        }
+      }
+    },
+    "present_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "input", "format", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/step_id" },
+        "type": { "const": "present" },
+        "input": { "$ref": "#/$defs/step_id" },
+        "format": { "enum": ["table", "scalar"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    }
+  }
+}

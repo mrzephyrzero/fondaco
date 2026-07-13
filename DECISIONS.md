@@ -10,6 +10,8 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-13 | Unlabeled schema objects default to `restricted` | Fail closed: nothing leaks by omission (label-model.md §3, pending freeze) |
 | 2026-07-13 | Aggregation does not declassify in v0 | Max-label propagation stays monotone; declassification only ever by explicit future version (label-model.md §4, pending freeze) |
 | 2026-07-13 | Line endings normalized to LF via `.gitattributes` | Windows dev host, Linux runtime/CI |
+| 2026-07-13 | Policy labels query steps by whole-table over-approximation (max over all columns of every FROM/JOIN table; unresolvable → `restricted`) | Sound upper bound on label-model.md §4 "columns read" — can only raise labels, never lower; column-precise resolution deferred (implementation detail, not an interface change) |
+| 2026-07-13 | Audit hash chain cannot detect tail truncation from the file alone | Inherent to hash chains; noted in `boundary/audit.py` for the Phase 7 threat model (external head anchoring is the mitigation) |
 
 ## Dependencies
 
@@ -21,6 +23,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-13 | `pytest` (dev) | Standard test runner; required by plan CI (lint + pytest) |
 | 2026-07-13 | `httpx` (dev) | Required by FastAPI's TestClient for the health smoke test |
 | 2026-07-13 | `ruff` (dev) | Single tool for lint + format, no plugin chain |
+| 2026-07-13 | `jsonschema` | Plans are "schema-validatable" by frozen stack decision (plan §1); mature reference implementation beats hand-rolling security-critical validation |
 
 ## Sign-offs
 
