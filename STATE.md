@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 1 — Boundary core: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P1** (2026-07-13) — pending only the pushed CI run turning green (verified locally)
+- **Current phase:** 1 — Boundary core: **COMPLETE**
+- **Last completed checkpoint:** **P1** (2026-07-13) — all three items pass; CI green on GitHub Actions for commit `b84a9e6`
 - **Next action:** fresh session for **Phase 2 — Executor + Postgres adapter**. Context: `CLAUDE.md`, this file, `design/adapter-contract.md`, `design/plan-dsl.md`.
 
 ## Checkpoint P1 status
