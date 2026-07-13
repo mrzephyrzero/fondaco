@@ -1,7 +1,7 @@
 # Plan DSL Specification
 
-**Version:** v0 — **DRAFT — pending human freeze**
-**Status:** Proposed by Claude Code in Phase 0. Not binding until the human architect marks it FROZEN.
+**Version:** v0 — **FROZEN**
+**Status:** Frozen as-is by the human architect on 2026-07-13 (sign-off in `DECISIONS.md`). Binding for all implementation.
 **Change procedure (post-freeze):** No in-place edits. Implementation problems are filed in `STATE.md` under `INTERFACE_CHANGE_REQUEST` with the problem and a proposed change; only the human approves, and any approved change ships as a new version (v1, v2, …) of this document.
 
 ## 1. Purpose

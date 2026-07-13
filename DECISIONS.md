@@ -26,4 +26,4 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 
 | Date | Item | Who |
 |---|---|---|
-| — | Checkpoint P0 human sign-off (three design docs frozen v0) | _pending_ |
+| 2026-07-13 | Checkpoint P0 human sign-off: three design docs frozen v0 as-is | Human architect (via session approval) |
