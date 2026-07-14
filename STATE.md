@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 3 — Planner: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P3** (2026-07-14) — pending only the pushed CI run turning green (checkpoint items verified locally)
+- **Current phase:** 3 — Planner: **COMPLETE**
+- **Last completed checkpoint:** **P3** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `e546dc3` (unit + canary in CI; live scenario run local-only by design)
 - **Next action:** fresh session for **Phase 4 — API + approval flow + audit UI**. Context: `CLAUDE.md`, this file, `design/plan-dsl.md` (rendering), Phase 1 audit format (`boundary/audit.py`).
 
 ## Checkpoint P3 status
