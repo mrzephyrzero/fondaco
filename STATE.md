@@ -2,40 +2,32 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 5 — Guards: **COMPLETE**
-- **Last completed checkpoint:** **P5** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `329aba2` (adversarial suite runs in CI against the postgres service)
-- **Next action:** fresh session for **Phase 6 — Packaging & demo polish**. Context: `CLAUDE.md`, this file, `demo/scenarios.md`, README.
+- **Current phase:** 6 — Packaging & demo polish: **complete pending CI confirmation** (checkpoint below)
+- **Last completed checkpoint:** **P6** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally, incl. a fresh-clone clean-machine test)
+- **Next action:** fresh session for **Phase 7 — Adversarial phase** (separate sessions, adversarial system prompt). Context: `CLAUDE.md`, this file, code of `/boundary`, `/executor`, `/planner`; write findings into `design/threat-model.md`.
 
-## Checkpoint P5 status
+## Checkpoint P6 status
 
 | Item | Status |
 |---|---|
-| Attack simulation halted by budget; audit log flags the pattern | ✅ `tests/adversarial/test_binary_search_attack.py` (2 tests, real Postgres via API): every one-row `count` probe suppressed by k-threshold, run hard-stops at the query budget (429, DB never touched past the limit), `guard_decision` audit entries assert both guards fired and are visible at `/audit` |
-| Guards documented in README "What this does NOT protect against" | ✅ drafted (aggregate channel raised-not-closed, no-auth/cookie budget reset, cross-grouping differencing, malicious approver, side channels) — finalized in Phase 7 |
+| Clean-machine test: fresh clone → working demo in ≤ 5 minutes, README only | ✅ Fresh `git clone` from GitHub (no `.env`, no local override), `docker compose up` → healthy in **35s**; scripted walkthrough (Q1 ask→approve→`internal` result, Q10 ask→**DENIED**/409, `/audit` hash chain verified) ran in ~1s. Total well under 5 min. Caveat: base images (`python:3.12-slim`, `postgres:16`) were already pulled locally — on a truly pristine machine add their one-time pull (~200 MB) |
+| README explains the architecture in ≤ 1 screen before any install instructions | ✅ Rewritten: tagline → ASCII loop diagram + core claim (≤1 screen) → *then* Quick start. Demo banner, scripted walkthrough, real-planner profiles, gateway note, guards, "what this does NOT protect against", repo map |
 
-Verification 2026-07-14: 111 tests green (92 unit + 17 integration + 2 adversarial), ruff clean; running container serves the budget UI and `guard_decision` audit filter.
+Verification 2026-07-14: 138 tests green (unit + integration + adversarial; live-LLM/live-canary skip without a key), ruff clean. Demo scenarios run keyless in CI.
 
-## What Phase 5 added
+## What Phase 6 added
 
-`boundary/guards.py` — `suppress_small_groups` (k-threshold, drop not mask), `QueryBudget` (per-session hard stop, all-or-nothing), `config_from_env` (fail closed: k<1/negative/garbage → default, guard cannot be disabled). Wired: `executor/runner.py` suppresses every aggregate (new `RunResult.suppressed_groups`); `api/main.py` charges the budget before execution, emits new `guard_decision` audit event, sets a `fondaco_session` cookie; UI shows budget used/limit and suppression notices. `boundary/audit.py` gains `EVENT_GUARD_DECISION`.
+- **`planner/demo.py` — deterministic demo planner** (`FONDACO_PLANNER=demo`, the compose default): keyless, one hand-written validated plan per scripted question. Built via the new shared **`planner.client.assemble_plan`**, so a fixture plan is validated by the identical code an LLM plan is, then crosses the same policy/executor/guards/audit. `trace.prompt_version="demo-fixtures"` keeps the audit honest. Q10 reads restricted PII → policy-denied by design.
+- **Transparency:** UI banner "DEMO MODE — no LLM involved" + README state it plainly; switching to a real planner is one env var (`FONDACO_PLANNER=llm`) + a profile.
+- **README** rewritten architecture-first; **compose/.env.example** default to demo with cloud + local profiles documented; **`demo/scenarios.md`** notes the dual role.
+- **Tests:** `tests/unit/test_demo_planner.py` (fixtures validate via the shared path, unknown → fail closed) and `tests/integration/test_demo_scenarios.py` (all 10 end-to-end through the real boundary, keyless, CI-friendly — also guards against dataset drift).
 
-## Canary re-run on the REAL external API path (2026-07-14) — **PASS**
+## Notes for Phase 7 (adversarial)
 
-The P3 canary claim had only ever been proven against a mocked transport. Re-run against the live cloud endpoint, after fixing the `temperature` rejection (see DECISIONS.md):
-
-- **Endpoint:** `https://api.anthropic.com/v1`, `claude-sonnet-5` (credits funded by the human).
-- **Planted:** 3 high-entropy sentinel tokens (e.g. `Z9QX7KWJ4PLUMBAT2VXQZZ8NROGGLE`) written as **row values** in `customers` — strings no model would regenerate on its own, so a hit could only mean the literal row crossed the wire. Verified readable from the DB first, so a leak was genuinely possible.
-- **Inspected:** the **serialized outbound network payload** — the transport wraps a real `httpx.HTTPTransport` and records `request.content`, the exact bytes handed to the socket (not a pre-serialization dict). 1 request, 7 370 bytes.
-- **Result:** planner returned a **valid plan on the first attempt** (`query,aggregate,present`); **0 of 3 canaries appeared in anything leaving the perimeter.**
-- Durable, key-gated test: `tests/integration/test_canary_live.py` (skipped without `FONDACO_LLM_API_KEY`, so CI stays secret-free; the mocked `test_canary.py` remains the CI guard).
-
-## Notes for Phase 6
-
-- **Two planner profiles** to package and document: **cloud (default)** — Anthropic `claude-sonnet-5`, omits `temperature`; **local fallback** — host Ollama `qwen2.5-coder:7b`, pins `temperature=0`, `TIMEOUT_S=180`. Compose still defaults to the local profile so the demo runs keyless; `.env.example` documents both. Decide in Phase 6 which one `docker compose up` should pick by default.
-- **Scope note (logged in DECISIONS.md):** the k-threshold guards *every* aggregate result, not just planner-facing ones — the plan text's "toward the planner in repair loops" scope would guard nothing here, since the repair loop feeds back only validation errors. The reader in the UI is the attacker.
-- Demo tuning: default k=5 means a legitimate question whose grouping yields a <5-row group shows a suppression notice — worth surfacing in the walkthrough as a feature, and picking scenario questions whose groups are comfortably above k.
-- README has "Guards" + "What this does NOT protect against"; Phase 6 adds the ≤1-screen architecture overview above install steps.
-- Dev env: Python 3.12 (matches CI/Docker) — the previous 3.13 local venv gap is closed.
+- Attack surface to hammer (from IMPLEMENTATION_PLAN.md §7): plan-DSL smuggling, SQL template escapes, label escalation via derived results, exfiltration via error messages, prompt injection from **hostile schema annotations** (column comments are planner-visible by design), canary extraction via the repair loop, binary-search aggregate exfiltration.
+- Already-known residual risks to fold into `design/threat-model.md`: the aggregate/inference channel (guards raise cost, don't close it); no-auth cookie-reset budget; audit **tail-truncation** not detectable from the file alone (needs external head anchoring); policy label-scan reads any `FROM` conservatively → over-restricts (a feature, but worth an attacker's probe).
+- The demo planner is a fixture path; Phase 7 should attack the **`llm` path** and the boundary itself, not the fixtures.
+- README already carries a drafted "What this does NOT protect against" — Phase 7 finalizes it against the threat model.
 
 ## Open questions (for the human)
 
