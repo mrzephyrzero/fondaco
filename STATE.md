@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 6 — Packaging & demo polish: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P6** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally, incl. a fresh-clone clean-machine test)
+- **Current phase:** 6 — Packaging & demo polish: **COMPLETE**
+- **Last completed checkpoint:** **P6** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `e3faf62`
 - **Next action:** fresh session for **Phase 7 — Adversarial phase** (separate sessions, adversarial system prompt). Context: `CLAUDE.md`, this file, code of `/boundary`, `/executor`, `/planner`; write findings into `design/threat-model.md`.
 
 ## Checkpoint P6 status
