@@ -32,6 +32,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | Python 3.12 locally, matching the pinned CI/Docker version | Human decision — removes the 3.13-vs-3.12 dev/CI parity gap (human confirms the install separately) |
 | 2026-07-14 | `docker compose up` defaults to a **deterministic demo planner** (`FONDACO_PLANNER=demo`) | Human decision. The ≤5-min keyless clean-machine demo needs no API key and no model download; cloud/Ollama are opt-in profiles. Two conditions held: (1) transparently a fixture — UI banner + README say "no LLM involved"; (2) fixtures cross the exact same boundary via the shared `assemble_plan` path (validator/policy/executor/guards/audit unchanged), enforced by `tests/integration/test_demo_scenarios.py` |
 | 2026-07-14 | Envelope-build + validation extracted to `planner.client.assemble_plan`, shared by live and demo planners | Guarantees a fixture plan is validated by literally the same code as an LLM plan — no parallel, weaker path |
+| 2026-07-14 | **CRIT-1 fix:** policy label scanner fails closed on implicit comma-joins (`FROM a, b` → `restricted`) | Phase 7 found that comma-joins hid a restricted table from `_FROM_JOIN_RE`, so PII could cross at `internal` clearance. Fixed in `boundary/policy.py` within the frozen interface (label-model.md §4 already requires max-label over all tables read; the scanner simply failed to see them). Comma-joins are denied rather than parsed — fail closed; explicit JOINs still resolve. Not an `INTERFACE_CHANGE_REQUEST` |
 
 ## Dependencies
 

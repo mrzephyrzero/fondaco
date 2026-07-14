@@ -130,8 +130,12 @@ a guard cannot be disabled.
 
 ## What this does NOT protect against
 
-_Draft, finalized in Phase 7's threat model. Fondaco is a reference
-architecture; this list is deliberately honest._
+Fondaco is a reference architecture; this list is deliberately honest. The full
+attack log — 14 documented attacks, each with its outcome — is in
+[`design/threat-model.md`](design/threat-model.md). That pass found and fixed
+one critical (a comma-join that hid a restricted table from the label scanner,
+letting PII cross); it is closed and has a regression test. The threat model
+ships *because* it shows real bugs caught, not despite it. Known residual risks:
 
 - **Aggregate/inference channel — raised in cost, not closed.** The k-threshold
   and query budget slow statistical inference and make it auditable, but a
@@ -147,8 +151,14 @@ architecture; this list is deliberately honest._
   aggregates to isolate an individual.
 - **A malicious approver.** Approval is the trust anchor; someone who approves
   an exfiltrating plan is out of scope by design.
-- **Side channels** (timing, error text, query duration) beyond those already
-  sanitized are examined in Phase 7.
+- **Differencing across groupings.** The k-threshold suppresses small groups
+  within one result but not the combination of two different legal aggregates to
+  isolate an individual.
+- **Audit tail-truncation.** The hash chain detects any edit, deletion, or
+  reordering *within* the log, but deleting entries from the end is not
+  detectable from the file alone (needs external anchoring of the latest hash).
+- **Side channels** (timing, query duration) beyond error text, which is already
+  sanitized to exception class + SQLSTATE.
 
 ---
 

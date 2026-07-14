@@ -2,32 +2,33 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 6 — Packaging & demo polish: **COMPLETE**
-- **Last completed checkpoint:** **P6** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `e3faf62`
-- **Next action:** fresh session for **Phase 7 — Adversarial phase** (separate sessions, adversarial system prompt). Context: `CLAUDE.md`, this file, code of `/boundary`, `/executor`, `/planner`; write findings into `design/threat-model.md`.
+- **Current phase:** 7 — Adversarial phase: **complete pending CI confirmation** (checkpoint below)
+- **Last completed checkpoint:** **P7** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Next action:** fresh session for **Phase 8 — Release readiness** (human-heavy). Context: `CLAUDE.md`, this file, `design/threat-model.md`, README, SECURITY.md; tasks: license decision executed (Apache-2.0 already chosen) + headers/NOTICE, finalize SECURITY.md, ROADMAP four-design narrative, blog #1 + Show HN drafts.
 
-## Checkpoint P6 status
+## Checkpoint P7 status
 
 | Item | Status |
 |---|---|
-| Clean-machine test: fresh clone → working demo in ≤ 5 minutes, README only | ✅ Fresh `git clone` from GitHub (no `.env`, no local override), `docker compose up` → healthy in **35s**; scripted walkthrough (Q1 ask→approve→`internal` result, Q10 ask→**DENIED**/409, `/audit` hash chain verified) ran in ~1s. Total well under 5 min. Caveat: base images (`python:3.12-slim`, `postgres:16`) were already pulled locally — on a truly pristine machine add their one-time pull (~200 MB) |
-| README explains the architecture in ≤ 1 screen before any install instructions | ✅ Rewritten: tagline → ASCII loop diagram + core claim (≤1 screen) → *then* Quick start. Demo banner, scripted walkthrough, real-planner profiles, gateway note, guards, "what this does NOT protect against", repo map |
+| ≥ 10 documented attack attempts in the threat model, each with outcome | ✅ `design/threat-model.md` logs **14** attacks (attack → vector → result → mitigation/accepted-risk) |
+| Zero known critical findings open (critical = row data crosses the boundary) | ✅ One critical found (**CRIT-1**, comma-join label bypass) and **fixed**; no other row-data-crossing path remains after the pass |
+| Threat model is publishable as-is — a feature, not an internal doc | ✅ Full doc: claim under test, assets/trust boundaries, attacker profiles, 14-row attack log, accepted residual risks, pass outcome. README section finalized and links to it |
 
-Verification 2026-07-14: 138 tests green (unit + integration + adversarial; live-LLM/live-canary skip without a key), ruff clean. Demo scenarios run keyless in CI.
+Verification 2026-07-14: 153 tests green (unit + integration + adversarial; live-LLM/live-canary skip without a key), ruff clean.
 
-## What Phase 6 added
+## What Phase 7 found & did
 
-- **`planner/demo.py` — deterministic demo planner** (`FONDACO_PLANNER=demo`, the compose default): keyless, one hand-written validated plan per scripted question. Built via the new shared **`planner.client.assemble_plan`**, so a fixture plan is validated by the identical code an LLM plan is, then crosses the same policy/executor/guards/audit. `trace.prompt_version="demo-fixtures"` keeps the audit honest. Q10 reads restricted PII → policy-denied by design.
-- **Transparency:** UI banner "DEMO MODE — no LLM involved" + README state it plainly; switching to a real planner is one env var (`FONDACO_PLANNER=llm`) + a profile.
-- **README** rewritten architecture-first; **compose/.env.example** default to demo with cloud + local profiles documented; **`demo/scenarios.md`** notes the dual role.
-- **Tests:** `tests/unit/test_demo_planner.py` (fixtures validate via the shared path, unknown → fail closed) and `tests/integration/test_demo_scenarios.py` (all 10 end-to-end through the real boundary, keyless, CI-friendly — also guards against dataset drift).
+- **CRIT-1 — comma-join label bypass (row data crossed).** `SELECT c.email FROM orders o, customers c …` hid the restricted `customers` table from `boundary/policy.py:_FROM_JOIN_RE` (it only captures the identifier right after FROM/JOIN), so the plan was labeled `internal` and allowed; the read-only role can read `customers`, so PII egressed. **Fixed** by failing closed on any implicit comma-join (`_COMMA_JOIN_RE` → `restricted`); explicit JOINs still resolve correctly, and the legitimate demo templates (select-list commas, `to_char` projections) are not over-restricted. The adapter shares `query_label`, so its defense-in-depth re-label inherited the fix.
+- **Regression tests:** `tests/adversarial/test_boundary_attacks.py` (unit — label + policy) and `tests/adversarial/test_comma_join_live.py` (real DB — proves the RO role *could* read `customers`, the plan is denied end-to-end, the adapter labels it `restricted`, and errors don't leak param values).
+- Everything else attacked held: DSL smuggling, template escapes, subquery/UNION label capture, aggregation-no-declassify, error sanitization, repair-loop-no-data, prompt injection bounded by the boundary, binary-search guards, audit tamper detection, guard-disable fail-closed.
 
-## Notes for Phase 7 (adversarial)
+## Notes for Phase 8
 
-- Attack surface to hammer (from IMPLEMENTATION_PLAN.md §7): plan-DSL smuggling, SQL template escapes, label escalation via derived results, exfiltration via error messages, prompt injection from **hostile schema annotations** (column comments are planner-visible by design), canary extraction via the repair loop, binary-search aggregate exfiltration.
-- Already-known residual risks to fold into `design/threat-model.md`: the aggregate/inference channel (guards raise cost, don't close it); no-auth cookie-reset budget; audit **tail-truncation** not detectable from the file alone (needs external head anchoring); policy label-scan reads any `FROM` conservatively → over-restricts (a feature, but worth an attacker's probe).
-- The demo planner is a fixture path; Phase 7 should attack the **`llm` path** and the boundary itself, not the fixtures.
-- README already carries a drafted "What this does NOT protect against" — Phase 7 finalizes it against the threat model.
+- **No frozen interface changed** in Phase 7; `INTERFACE_CHANGE_REQUEST` remains empty. CRIT-1 was a code fix.
+- `design/threat-model.md` is publishable and is a launch asset (blog #1 highlight, Show HN credibility).
+- License is Apache-2.0 (chosen in P0, recorded in DECISIONS.md) — Phase 8 applies headers + NOTICE and swaps the placeholder license comments now atop every source file.
+- SECURITY.md is still a skeleton (disclosure contact + response expectation TODOs) — finalize in Phase 8.
+- README residual-risk section and the threat model must be reviewed together in the Phase 8 final pass.
 
 ## Open questions (for the human)
 

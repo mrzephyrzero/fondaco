@@ -19,6 +19,15 @@ from enum import IntEnum
 
 _FROM_JOIN_RE = re.compile(r"\b(?:FROM|JOIN)\b\s*([A-Za-z_][A-Za-z0-9_]*)?", re.IGNORECASE)
 
+# Implicit comma-join: `FROM <table> [AS] [alias] ,` introduces a second relation
+# that _FROM_JOIN_RE never sees (no FROM/JOIN keyword precedes it), which would
+# hide a high-label table behind a low-label one. We refuse to guess the full
+# FROM-list and fail closed (→ restricted). Explicit JOINs are unaffected.
+_COMMA_JOIN_RE = re.compile(
+    r"\bFROM\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+(?:AS\s+)?[A-Za-z_][A-Za-z0-9_]*)?\s*,",
+    re.IGNORECASE,
+)
+
 
 class LabelError(ValueError):
     """Raised for any string that is not exactly one of the four levels."""
@@ -81,6 +90,9 @@ def _table_label(table: dict) -> Label:
 
 def _referenced_tables(template: str) -> list[str] | None:
     """Table names after FROM/JOIN, or None if any reference is unresolvable."""
+    if _COMMA_JOIN_RE.search(template):
+        # Implicit comma-join hides sibling relations from the scan — fail closed.
+        return None
     names: list[str] = []
     for match in _FROM_JOIN_RE.finditer(template):
         if match.group(1) is None:
