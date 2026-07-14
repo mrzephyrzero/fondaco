@@ -23,6 +23,10 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | No authentication in V1; approver identity is a self-declared form field | Approval flow is the demo, identity/authz is deployment-specific; documented limitation, revisited in Phase 7/8 |
 | 2026-07-14 | htmx 2.0.4 vendored into `api/ui/static` | No CDN: the five-minute stranger demo must work offline; no build chain (frozen stack) |
 | 2026-07-14 | Compose planner default: host Ollama via `host.docker.internal` | Demo works without any API key (Anthropic credits still pending); cloud API is a `.env` override |
+| 2026-07-14 | k-threshold applies to **every** aggregate result, not only planner-facing ones | Plan §Phase-5 scopes it to "aggregates returned toward the planner in repair loops", but our repair loop feeds back only validation errors (P3 canary), so that scope would guard nothing; the reader in the UI is the attacker. Superset of the requirement, same intent |
+| 2026-07-14 | Small groups are dropped, not masked-in-place | A masked cell beside a visible count still leaks the count; only removal kills the binary-search primitive |
+| 2026-07-14 | Query budget is in-memory, per session cookie; guards fail closed (k=0/negative → default) | V1 demo scope: no auth, budget resets on cookie clear (documented residual risk); a guard can be tuned but never disabled |
+| 2026-07-14 | Guard defaults k=5, query_budget=20 | Reasonable demo values; small enough to demonstrate suppression and the hard stop, configurable via env |
 
 ## Dependencies
 

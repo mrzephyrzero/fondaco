@@ -13,7 +13,7 @@
   <label>event
     <select name="event">
       <option value="">all</option>
-      {% for ev in ['question_received','plan_generated','validation_result','policy_decision','approval','execution_digest'] %}
+      {% for ev in ['question_received','plan_generated','validation_result','policy_decision','approval','guard_decision','execution_digest'] %}
       <option value="{{ ev }}" {% if ev == event_filter %}selected{% endif %}>{{ ev }}</option>
       {% endfor %}
     </select>

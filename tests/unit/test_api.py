@@ -54,7 +54,10 @@ class CountingAdapter:
 
     def execute(self, step):
         self.execute_calls += 1
-        rows = (("north", "paid"), ("south", "pending"))
+        # Enough rows per region that the k-threshold (default 5) keeps them.
+        rows = tuple(("north", "paid") for _ in range(6)) + tuple(
+            ("south", "pending") for _ in range(6)
+        )
         return LabeledResult(
             columns=("region", "status"),
             rows=rows,
@@ -137,6 +140,7 @@ def test_full_loop_ask_approve_execute_audited(tmp_path):
         "validation_result",
         "policy_decision",
         "approval",
+        "guard_decision",
         "execution_digest",
     }
     from boundary.audit import AuditLog
@@ -200,6 +204,27 @@ def test_unknown_plan_404_and_double_approve_409(tmp_path):
     second = client.post(f"/plans/{plan_id}/approve", data={}, follow_redirects=False)
     assert second.status_code == 409
     assert adapter.execute_calls == 1
+
+
+def test_query_budget_hard_stops_and_audits(tmp_path, monkeypatch):
+    monkeypatch.setenv("FONDACO_QUERY_BUDGET", "2")  # each plan has 1 query step
+    client, adapter, audit_path = _mk(tmp_path, _good_steps(), _good_steps(), _good_steps())
+
+    ids = [_ask(client) for _ in range(3)]
+    assert client.post(f"/plans/{ids[0]}/approve", data={}).status_code == 200
+    assert client.post(f"/plans/{ids[1]}/approve", data={}).status_code == 200
+    # Third approve is over the per-session budget of 2 → hard stop, no execution.
+    blocked = client.post(f"/plans/{ids[2]}/approve", data={}, follow_redirects=False)
+    assert blocked.status_code == 429
+    assert adapter.execute_calls == 2  # third plan never ran
+
+    entries = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    budget_hits = [
+        e
+        for e in entries
+        if e["event"] == "guard_decision" and e["payload"]["guard"] == "query_budget"
+    ]
+    assert len(budget_hits) == 1 and budget_hits[0]["payload"]["triggered"] is True
 
 
 def test_audit_view_shows_chain_and_filters(tmp_path):

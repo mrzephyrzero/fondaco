@@ -64,6 +64,10 @@
 {% if r.result %}
 <h3>{{ r.result.title }}
   <span class="badge label-{{ r.result.label }}">{{ r.result.label }}</span></h3>
+{% if r.result.suppressed_groups %}
+<p class="muted">⚠ {{ r.result.suppressed_groups }} group(s) suppressed — each backed by
+  fewer than k={{ k }} rows (cardinality guard).</p>
+{% endif %}
 <table>
   <tr>{% for c in r.result.columns %}<th>{{ c }}</th>{% endfor %}</tr>
   {% for row in r.result.rows %}

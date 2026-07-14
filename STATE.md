@@ -2,33 +2,32 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 4 — API + approval flow + audit UI: **COMPLETE**
-- **Last completed checkpoint:** **P4** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `dc5f82c`
-- **Next action:** fresh session for **Phase 5 — Guards: cardinality thresholds and query budgets**. Context: `CLAUDE.md`, this file, `design/label-model.md`, Phase 1 policy engine (`boundary/policy.py`).
+- **Current phase:** 5 — Guards: **complete pending CI confirmation** (checkpoint below)
+- **Last completed checkpoint:** **P5** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Next action:** fresh session for **Phase 6 — Packaging & demo polish**. Context: `CLAUDE.md`, this file, `demo/scenarios.md`, README.
 
-## Checkpoint P4 status
+## Checkpoint P5 status
 
 | Item | Status |
 |---|---|
-| Full loop demo-able in < 2 minutes from `docker compose up` | ✅ **64.7s** measured (compose up 17.8s + real LLM planning via host Ollama 46.7s + approve/execute), warm model. First-ever request adds ~2 min one-time Ollama model load; a funded cloud API planner takes seconds |
-| Rejected plan provably never executed | ✅ `tests/unit/test_api.py::test_rejected_plan_is_provably_never_executed`: counting adapter shows 0 executions after reject and after post-reject approve (409); policy-denied plans equally unapprovable |
-| Audit view shows complete chain for every request | ✅ six-event chain per request rendered at `/audit` with verified-chain banner, event/plan filters, per-plan links; chains survive restarts (named volume). Unit-asserted + manually verified over two demo runs |
+| Attack simulation halted by budget; audit log flags the pattern | ✅ `tests/adversarial/test_binary_search_attack.py` (2 tests, real Postgres via API): every one-row `count` probe suppressed by k-threshold, run hard-stops at the query budget (429, DB never touched past the limit), `guard_decision` audit entries assert both guards fired and are visible at `/audit` |
+| Guards documented in README "What this does NOT protect against" | ✅ drafted (aggregate channel raised-not-closed, no-auth/cookie budget reset, cross-grouping differencing, malicious approver, side channels) — finalized in Phase 7 |
 
-Verification 2026-07-14: 72 unit + 17 integration tests green, ruff clean.
+Verification 2026-07-14: 111 tests green (92 unit + 17 integration + 2 adversarial), ruff clean; running container serves the budget UI and `guard_decision` audit filter.
 
-## What Phase 4 added
+## What Phase 5 added
 
-`api/main.py` app factory (ask → plan page with per-step labels + policy reasoning → approve/reject → labeled results); `boundary.policy.step_labels` public helper; `AuditLog.entries()` read view; `PlanningTrace` wired into audit (per-attempt validation events); Jinja templates + vendored htmx 2.0.4; compose: LLM env (host-Ollama default), audit volume.
+`boundary/guards.py` — `suppress_small_groups` (k-threshold, drop not mask), `QueryBudget` (per-session hard stop, all-or-nothing), `config_from_env` (fail closed: k<1/negative/garbage → default, guard cannot be disabled). Wired: `executor/runner.py` suppresses every aggregate (new `RunResult.suppressed_groups`); `api/main.py` charges the budget before execution, emits new `guard_decision` audit event, sets a `fondaco_session` cookie; UI shows budget used/limit and suppression notices. `boundary/audit.py` gains `EVENT_GUARD_DECISION`.
 
-## Notes for Phase 5 (and the human)
+## Notes for Phase 6 (and the human)
 
-- Guards hook points: `boundary/guards.py` still a stub. k-threshold applies to aggregates flowing back toward the planner in repair loops — note the current repair loop (planner/client.py) feeds back only *validation errors*, never results; the guard surface will matter when repair-on-execution or iterative planning appears. Per-session query budget: natural enforcement point is `create_app`'s ask/approve handlers + runner.
-- Approval identity is self-declared (no auth in V1, DECISIONS.md) — worth an explicit line in the Phase 7 threat model.
-- Anthropic credits still pending (open question) — compose demo defaults to host Ollama meanwhile.
+- **Scope note (logged in DECISIONS.md):** the k-threshold guards *every* aggregate result, not just planner-facing ones — the plan text's "toward the planner in repair loops" scope would guard nothing here, since the repair loop feeds back only validation errors (P3 canary). The reader in the UI is the attacker.
+- Demo tuning: default k=5 means a legitimate question whose grouping yields a <5-row group shows a suppression notice — worth surfacing in the Phase 6 walkthrough as a feature, and picking scenario questions whose groups are comfortably above k.
+- README now has an architecture-adjacent "Guards" + "What this does NOT protect against" section; Phase 6 adds the ≤1-screen architecture overview above install steps.
 
 ## Open questions (for the human)
 
-1. **Anthropic credits** — top up to switch the demo planner to `claude-sonnet-5` (faster + stronger than local 7B).
+1. **Anthropic credits** — still low; demo planner defaults to host Ollama. Top up to use `claude-sonnet-5`.
 2. **Local Python** — 3.13/3.11 locally vs pinned 3.12 in CI/Docker. Fine, or install 3.12 for parity?
 
 ## INTERFACE_CHANGE_REQUEST

@@ -14,6 +14,7 @@ field (documented limitation; see DECISIONS.md and Phase 7/8).
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,16 +28,26 @@ from fastapi.templating import Jinja2Templates
 from boundary.audit import (
     EVENT_APPROVAL,
     EVENT_EXECUTION_DIGEST,
+    EVENT_GUARD_DECISION,
     EVENT_PLAN_GENERATED,
     EVENT_POLICY_DECISION,
     EVENT_QUESTION_RECEIVED,
     EVENT_VALIDATION_RESULT,
     AuditLog,
 )
+from boundary.guards import (
+    GUARD_K_THRESHOLD,
+    GUARD_QUERY_BUDGET,
+    BudgetExceeded,
+    QueryBudget,
+    config_from_env,
+)
 from boundary.policy import PolicyDecision, evaluate, step_labels
 from executor.adapters.contract import Adapter, schema_labels_dict
 from executor.runner import ExecutorError, RunResult, run_plan
 from planner.client import PlannerClient, PlannerError, client_from_env
+
+SESSION_COOKIE = "fondaco_session"
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -72,7 +83,12 @@ def create_app(
 
     clearance = clearance or os.environ.get("FONDACO_EGRESS_CLEARANCE", "internal")
     audit = AuditLog(audit_path or os.environ.get("FONDACO_AUDIT_LOG", "./audit.jsonl"))
+    guard_config = config_from_env()
+    budget = QueryBudget(guard_config.query_budget)
     plans: dict[str, PlanRecord] = {}
+
+    def session_id(request: Request) -> str:
+        return request.cookies.get(SESSION_COOKIE) or str(uuid.uuid4())
 
     def get_adapter() -> Adapter:
         nonlocal adapter
@@ -104,9 +120,20 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, error: str = ""):
         records = sorted(plans.items(), key=lambda kv: kv[1].created, reverse=True)
-        return templates.TemplateResponse(
-            request, "index.html", {"plans": records, "clearance": clearance, "error": error}
+        sid = session_id(request)
+        response = templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "plans": records,
+                "clearance": clearance,
+                "error": error,
+                "budget": budget.state(sid),
+                "k": guard_config.k,
+            },
         )
+        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
+        return response
 
     @app.post("/ask")
     async def ask(request: Request):
@@ -176,7 +203,9 @@ def create_app(
             decision=decision,
             labels=labels,
         )
-        return RedirectResponse(f"/plans/{plan_id}", status_code=303)
+        response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
+        response.set_cookie(SESSION_COOKIE, session_id(request), httponly=True, samesite="lax")
+        return response
 
     @app.get("/plans/{plan_id}", response_class=HTMLResponse)
     def plan_detail(request: Request, plan_id: str):
@@ -184,7 +213,9 @@ def create_app(
         if record is None:
             return HTMLResponse("plan not found", status_code=404)
         return templates.TemplateResponse(
-            request, "plan.html", {"r": record, "plan_id": plan_id, "clearance": clearance}
+            request,
+            "plan.html",
+            {"r": record, "plan_id": plan_id, "clearance": clearance, "k": guard_config.k},
         )
 
     @app.post("/plans/{plan_id}/approve")
@@ -198,13 +229,37 @@ def create_app(
             return HTMLResponse(f"plan is {record.status}, not approvable", status_code=409)
         form = await request.form()
         approver = str(form.get("approver", "")).strip() or "anonymous"
+        sid = session_id(request)
 
         audit.append(
             EVENT_APPROVAL, {"plan_id": plan_id, "decision": "approve", "approver": approver}
         )
         record.approver = approver
+
+        # Query budget is charged BEFORE execution: an over-budget plan must
+        # never touch the database (fail closed, all-or-nothing).
+        n_query_steps = sum(1 for s in record.plan["steps"] if s["type"] == "query")
         try:
-            result = run_plan(record.plan, get_adapter())
+            budget_state = budget.consume(sid, n_query_steps)
+        except BudgetExceeded as exc:
+            record.status = FAILED
+            record.error = f"query budget exhausted ({exc.used}/{exc.limit})"
+            audit.append(
+                EVENT_GUARD_DECISION,
+                {
+                    "plan_id": plan_id,
+                    "guard": GUARD_QUERY_BUDGET,
+                    "triggered": True,
+                    "used": exc.used,
+                    "limit": exc.limit,
+                },
+            )
+            response = HTMLResponse(record.error, status_code=429)
+            response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
+            return response
+
+        try:
+            result = run_plan(record.plan, get_adapter(), k=guard_config.k)
         except ExecutorError as exc:
             record.status = FAILED
             record.error = f"{exc.code}: {exc.detail}"
@@ -216,6 +271,18 @@ def create_app(
         record.status = EXECUTED
         record.result = result
         audit.append(
+            EVENT_GUARD_DECISION,
+            {
+                "plan_id": plan_id,
+                "guard": GUARD_K_THRESHOLD,
+                "triggered": result.suppressed_groups > 0,
+                "k": guard_config.k,
+                "suppressed_groups": result.suppressed_groups,
+                "budget_used": budget_state.used,
+                "budget_limit": budget_state.limit,
+            },
+        )
+        audit.append(
             EVENT_EXECUTION_DIGEST,
             {
                 "plan_id": plan_id,
@@ -225,7 +292,9 @@ def create_app(
                 "row_count": len(result.rows),
             },
         )
-        return RedirectResponse(f"/plans/{plan_id}", status_code=303)
+        response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
+        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
+        return response
 
     @app.post("/plans/{plan_id}/reject")
     async def reject(request: Request, plan_id: str):

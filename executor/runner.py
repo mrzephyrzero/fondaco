@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 
+from boundary.guards import DEFAULT_K, suppress_small_groups
 from boundary.validator import validate_plan
 from executor.adapters.contract import Adapter, AdapterError, LabeledResult
 
@@ -35,6 +36,7 @@ class RunResult:
     rows: tuple[tuple, ...]
     label: str
     digest: str
+    suppressed_groups: int = 0  # dropped by the k-threshold guard
 
 
 def _digest(columns: tuple[str, ...], rows: tuple[tuple, ...]) -> str:
@@ -49,7 +51,7 @@ def _numeric(value: object, op: str, column: str) -> float | int | Decimal:
     return value
 
 
-def _aggregate(step: dict, source: LabeledResult) -> LabeledResult:
+def _aggregate(step: dict, source: LabeledResult, k: int) -> tuple[LabeledResult, int]:
     for name in [*step["group_by"], *(op["column"] for op in step["ops"])]:
         if name != "*" and name not in source.columns:
             raise ExecutorError("unknown_column", f"column {name!r} not in input result")
@@ -64,8 +66,10 @@ def _aggregate(step: dict, source: LabeledResult) -> LabeledResult:
 
     out_columns = tuple(step["group_by"]) + tuple(op["as"] for op in step["ops"])
     out_rows = []
-    for key in sorted(groups, key=lambda k: tuple(str(v) for v in k)):
+    group_sizes = []
+    for key in sorted(groups, key=lambda g: tuple(str(v) for v in g)):
         members = groups[key]
+        group_sizes.append(len(members))
         computed: list[object] = list(key)
         for op in step["ops"]:
             kind, column = op["op"], op["column"]
@@ -96,18 +100,25 @@ def _aggregate(step: dict, source: LabeledResult) -> LabeledResult:
         out_rows.append(tuple(computed))
 
     columns = out_columns
-    rows = tuple(out_rows)
-    return LabeledResult(
+    # k-threshold: groups backed by fewer than k input rows never leave the
+    # boundary — this is where the binary-search primitive dies (Phase 5).
+    suppression = suppress_small_groups(tuple(out_rows), tuple(group_sizes), k)
+    rows = suppression.rows
+    result = LabeledResult(
         columns=columns,
         rows=rows,
         label=source.label,  # aggregation never declassifies (label-model.md §4)
         row_count=len(rows),
         digest=_digest(columns, rows),
     )
+    return result, suppression.suppressed
 
 
-def run_plan(plan: dict, adapter: Adapter) -> RunResult:
-    """Execute a plan. Re-validates first; refuses non-read-only adapters."""
+def run_plan(plan: dict, adapter: Adapter, k: int = DEFAULT_K) -> RunResult:
+    """Execute a plan. Re-validates first; refuses non-read-only adapters.
+
+    `k` is the cardinality threshold applied to every aggregate result.
+    """
     validation = validate_plan(plan)
     if not validation.valid:
         codes = ",".join(sorted({e.code for e in validation.errors}))
@@ -120,12 +131,14 @@ def run_plan(plan: dict, adapter: Adapter) -> RunResult:
         raise ExecutorError("dsl_version_unsupported", plan["dsl_version"])
 
     results: dict[str, LabeledResult] = {}
+    suppressed = 0
     try:
         for step in plan["steps"]:
             if step["type"] == "query":
                 results[step["id"]] = adapter.execute(step)
             elif step["type"] == "aggregate":
-                results[step["id"]] = _aggregate(step, results[step["input"]])
+                results[step["id"]], dropped = _aggregate(step, results[step["input"]], k)
+                suppressed += dropped
             else:  # present — validator guarantees it is last and unique
                 source = results[step["input"]]
                 return RunResult(
@@ -135,6 +148,7 @@ def run_plan(plan: dict, adapter: Adapter) -> RunResult:
                     rows=source.rows,
                     label=source.label,
                     digest=source.digest,
+                    suppressed_groups=suppressed,
                 )
     except AdapterError as exc:
         raise ExecutorError("adapter_error", f"{exc.kind}: {exc.message}") from exc

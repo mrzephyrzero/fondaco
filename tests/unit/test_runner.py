@@ -75,24 +75,34 @@ def test_end_to_end_with_fake_adapter():
             {"op": "avg", "column": "amount", "as": "mean"},
         ]
     )
-    result = run_plan(plan, FakeAdapter(_result(ROWS)))
+    # k=1 disables small-group suppression so aggregate math can be checked.
+    result = run_plan(plan, FakeAdapter(_result(ROWS)), k=1)
     assert result.columns == ("region", "n", "total", "mean")
     assert result.rows == (("north", 2, 40, 20.0), ("south", 1, 5, 5.0))
     assert result.label == "internal"
     assert result.title == "t"
     assert len(result.digest) == 64
+    assert result.suppressed_groups == 0
 
 
 def test_label_propagates_unchanged_through_aggregate_and_present():
     plan = _plan_with_ops([{"op": "min", "column": "amount", "as": "lo"}])
-    result = run_plan(plan, FakeAdapter(_result(ROWS, label="restricted")))
+    result = run_plan(plan, FakeAdapter(_result(ROWS, label="restricted")), k=1)
     assert result.label == "restricted"  # aggregation never declassifies
 
 
 def test_global_aggregate_without_group_by():
     plan = _plan_with_ops([{"op": "max", "column": "amount", "as": "hi"}], group_by=())
-    result = run_plan(plan, FakeAdapter(_result(ROWS)))
+    result = run_plan(plan, FakeAdapter(_result(ROWS)), k=1)
     assert result.rows == ((30,),)
+
+
+def test_small_groups_suppressed_at_default_k():
+    # north (2 rows) and south (1 row) are both below k=5 → dropped.
+    plan = _plan_with_ops([{"op": "count", "column": "*", "as": "n"}])
+    result = run_plan(plan, FakeAdapter(_result(ROWS)), k=5)
+    assert result.rows == ()
+    assert result.suppressed_groups == 2
 
 
 def test_invalid_plan_refused():
@@ -122,6 +132,6 @@ def test_unknown_column_fails_closed():
 
 
 def test_valid_plan_fixture_runs(valid_plan):
-    result = run_plan(valid_plan, FakeAdapter(_result(ROWS, columns=("region", "status"))))
+    result = run_plan(valid_plan, FakeAdapter(_result(ROWS, columns=("region", "status"))), k=1)
     assert result.label == "internal"
     assert result.columns == ("region", "n_orders")

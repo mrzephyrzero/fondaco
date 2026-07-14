@@ -8,6 +8,7 @@
     <button type="submit">Generate plan</button>
     <span class="spinner muted">planning… (a local model can take ~30s)</span>
     <span class="muted">Egress clearance: <span class="badge label-{{ clearance }}">{{ clearance }}</span></span>
+    {% if budget %}<span class="muted">· query budget: {{ budget.used }}/{{ budget.limit }} used · k={{ k }}</span>{% endif %}
   </p>
 </form>
 

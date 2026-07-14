@@ -32,6 +32,7 @@ EVENT_PLAN_GENERATED = "plan_generated"
 EVENT_VALIDATION_RESULT = "validation_result"
 EVENT_POLICY_DECISION = "policy_decision"
 EVENT_APPROVAL = "approval"
+EVENT_GUARD_DECISION = "guard_decision"
 EVENT_EXECUTION_DIGEST = "execution_digest"
 
 
