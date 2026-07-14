@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 4 — API + approval flow + audit UI: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P4** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Current phase:** 4 — API + approval flow + audit UI: **COMPLETE**
+- **Last completed checkpoint:** **P4** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `dc5f82c`
 - **Next action:** fresh session for **Phase 5 — Guards: cardinality thresholds and query budgets**. Context: `CLAUDE.md`, this file, `design/label-model.md`, Phase 1 policy engine (`boundary/policy.py`).
 
 ## Checkpoint P4 status
