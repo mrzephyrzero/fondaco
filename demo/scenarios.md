@@ -3,6 +3,12 @@
 The 10 scripted demo questions (Checkpoint P3: ≥ 8 must yield a valid,
 policy-passing plan within 2 attempts at clearance `internal`).
 
+These same questions are the **demo-mode fixtures**: `planner/demo.py` holds a
+hand-written, validated plan for each, so `docker compose up` gives a keyless
+demo (no LLM) while every plan still crosses the real boundary. Editing a
+question here means updating its fixture there (the integration test
+`tests/integration/test_demo_scenarios.py` enforces they stay in sync).
+
 Questions are phrased to be answerable with the v0 DSL over the demo
 dataset while keeping raw query results under the adapter's 10 000-row cap
 (filter or project narrowly, aggregate in plan steps).

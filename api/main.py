@@ -49,6 +49,13 @@ from planner.client import PlannerClient, PlannerError, client_from_env
 
 SESSION_COOKIE = "fondaco_session"
 
+
+def _scripted_questions() -> list[str]:
+    from planner.demo import SCRIPTED_QUESTIONS
+
+    return list(SCRIPTED_QUESTIONS)
+
+
 _UI_DIR = Path(__file__).parent / "ui"
 
 PENDING = "pending"
@@ -98,10 +105,21 @@ def create_app(
             adapter = PostgresAdapter(os.environ["DATABASE_URL"])
         return adapter
 
-    def get_planner() -> PlannerClient:
-        nonlocal planner
-        if planner is None:
+    demo_mode = False
+    if planner is None:
+        if os.environ.get("FONDACO_PLANNER", "demo").strip().lower() == "demo":
+            from planner.demo import DemoPlanner
+
+            planner = DemoPlanner()
+            demo_mode = True
+        else:
             planner = client_from_env()
+    else:
+        from planner.demo import DemoPlanner
+
+        demo_mode = isinstance(planner, DemoPlanner)
+
+    def get_planner():
         return planner
 
     @app.get("/health")
@@ -130,6 +148,8 @@ def create_app(
                 "error": error,
                 "budget": budget.state(sid),
                 "k": guard_config.k,
+                "demo_mode": demo_mode,
+                "scripted": _scripted_questions() if demo_mode else [],
             },
         )
         response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
@@ -215,7 +235,13 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "plan.html",
-            {"r": record, "plan_id": plan_id, "clearance": clearance, "k": guard_config.k},
+            {
+                "r": record,
+                "plan_id": plan_id,
+                "clearance": clearance,
+                "k": guard_config.k,
+                "demo_mode": demo_mode,
+            },
         )
 
     @app.post("/plans/{plan_id}/approve")
@@ -329,6 +355,7 @@ def create_app(
                 "verification": verification,
                 "event_filter": event,
                 "plan_filter": plan,
+                "demo_mode": demo_mode,
             },
         )
 

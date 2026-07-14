@@ -3,14 +3,24 @@
 <h2>Ask a question</h2>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <form method="post" action="/ask" hx-post="/ask" hx-indicator="this">
-  <input type="text" name="question" placeholder="e.g. How many orders were placed per region since October 2025?" required>
+  <input id="question" type="text" name="question" placeholder="e.g. How many orders were placed per region since October 2025?" required>
   <p>
     <button type="submit">Generate plan</button>
-    <span class="spinner muted">planning… (a local model can take ~30s)</span>
+    <span class="spinner muted">planning…</span>
     <span class="muted">Egress clearance: <span class="badge label-{{ clearance }}">{{ clearance }}</span></span>
     {% if budget %}<span class="muted">· query budget: {{ budget.used }}/{{ budget.limit }} used · k={{ k }}</span>{% endif %}
   </p>
 </form>
+
+{% if demo_mode and scripted %}
+<p class="muted">Demo mode answers these scripted questions — click one to fill the box
+  (the last one is deliberately refused by policy):</p>
+<ul>
+  {% for q in scripted %}
+  <li><a href="#" onclick="document.getElementById('question').value=this.textContent;return false;">{{ q }}</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
 
 <h2>Plans</h2>
 {% if plans %}

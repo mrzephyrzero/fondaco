@@ -79,6 +79,24 @@ def _schema_payload(schema: AnnotatedSchema) -> str:
     )
 
 
+def assemble_plan(question: str, steps: list) -> tuple[dict, PlanAttempt]:
+    """Build the plan envelope and validate it — the single shared path.
+
+    Both the live planner and the demo planner build plans exactly here, so
+    a fixture plan crosses the identical validator the LLM's output does.
+    `plan_id` is boundary-assigned (plan-dsl.md §2); the model/fixture never
+    supplies it.
+    """
+    plan = {
+        "dsl_version": "v0",
+        "plan_id": str(uuid.uuid4()),
+        "question": question,
+        "steps": steps,
+    }
+    validation = validate_plan(plan)
+    return plan, PlanAttempt(plan=plan, validation=validation)
+
+
 def _extract_steps(raw_text: str) -> list:
     """Strictly parse the model output: one JSON object with a 'steps' list."""
     text = raw_text.strip()
@@ -166,15 +184,9 @@ class PlannerClient:
                 )
                 continue
 
-            plan = {
-                "dsl_version": "v0",
-                "plan_id": str(uuid.uuid4()),  # boundary-assigned, never the model's
-                "question": question,
-                "steps": steps,
-            }
-            validation = validate_plan(plan)
-            attempts.append(PlanAttempt(plan=plan, validation=validation))
-            if validation.valid:
+            plan, attempt = assemble_plan(question, steps)
+            attempts.append(attempt)
+            if attempt.validation.valid:
                 trace = PlanningTrace(
                     question=question,
                     prompt_version=self._prompt_version,
@@ -183,7 +195,10 @@ class PlannerClient:
                 return plan, trace
 
             errors_payload = json.dumps(
-                [{"code": e.code, "path": e.path, "detail": e.detail} for e in validation.errors]
+                [
+                    {"code": e.code, "path": e.path, "detail": e.detail}
+                    for e in attempt.validation.errors
+                ]
             )
             messages.append({"role": "assistant", "content": raw})
             messages.append(

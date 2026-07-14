@@ -36,9 +36,19 @@
     .error { color:var(--deny); }
     .muted { color:var(--muted); font-size:0.88rem; }
     .spinner { display:none; } .htmx-request .spinner { display:inline; }
+    .demo-banner { background:#8a6d00; color:#fff; padding:0.4rem 1.2rem; font-size:0.88rem; }
+    .demo-banner strong { letter-spacing:0.03em; }
+    .demo-banner a { color:#fff; text-decoration:underline; }
   </style>
 </head>
 <body>
+{% if demo_mode %}
+<div class="demo-banner">
+  <strong>DEMO MODE</strong> — plans are pre-generated fixtures, <strong>no LLM is involved</strong>.
+  They still pass through the real validator, policy, executor, guards, and audit log.
+  For free-form questions, run a real planner: set <code>FONDACO_PLANNER=llm</code> (see README).
+</div>
+{% endif %}
 <header>
   <h1><a href="/">Fondaco</a></h1>
   <span class="tagline">Data stays home. Plans cross.</span>

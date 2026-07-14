@@ -7,7 +7,11 @@ services:
     environment:
       # The app connects as the SELECT-only role; only init scripts run as the owner.
       DATABASE_URL: postgresql://fondaco_ro:fondaco-ro-dev@db:5432/fondaco
-      # Planner: defaults to Ollama on the docker host; override in .env for a cloud API.
+      # Planner: 'demo' (default) uses pre-generated fixture plans — keyless,
+      # no LLM. Set FONDACO_PLANNER=llm plus a profile below for a real planner.
+      FONDACO_PLANNER: ${FONDACO_PLANNER:-demo}
+      # Real-planner profile (used only when FONDACO_PLANNER=llm). Default here is
+      # Ollama on the docker host; override in .env for a cloud API.
       FONDACO_LLM_BASE_URL: ${FONDACO_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       FONDACO_LLM_API_KEY: ${FONDACO_LLM_API_KEY:-}
       FONDACO_LLM_MODEL: ${FONDACO_LLM_MODEL:-qwen2.5-coder:7b}

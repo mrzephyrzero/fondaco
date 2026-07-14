@@ -30,6 +30,8 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | Sampling params (`temperature`, …) are per-profile endpoint config spread into the request body; the client never inspects the model name | `claude-sonnet-5` rejects the deprecated `temperature`; the cloud profile simply omits it while local profiles pin `temperature=0` — no model allowlist, no conditional logic in `planner/client.py` |
 | 2026-07-14 | **Anthropic cloud (`claude-sonnet-5`) is the default planner**; local Ollama is the documented fallback profile | Human decision (credits funded). Verified live: valid plan on the first attempt, and the canary test passed on the real external API path. Phase 6 ships both profiles documented |
 | 2026-07-14 | Python 3.12 locally, matching the pinned CI/Docker version | Human decision — removes the 3.13-vs-3.12 dev/CI parity gap (human confirms the install separately) |
+| 2026-07-14 | `docker compose up` defaults to a **deterministic demo planner** (`FONDACO_PLANNER=demo`) | Human decision. The ≤5-min keyless clean-machine demo needs no API key and no model download; cloud/Ollama are opt-in profiles. Two conditions held: (1) transparently a fixture — UI banner + README say "no LLM involved"; (2) fixtures cross the exact same boundary via the shared `assemble_plan` path (validator/policy/executor/guards/audit unchanged), enforced by `tests/integration/test_demo_scenarios.py` |
+| 2026-07-14 | Envelope-build + validation extracted to `planner.client.assemble_plan`, shared by live and demo planners | Guarantees a fixture plan is validated by literally the same code as an LLM plan — no parallel, weaker path |
 
 ## Dependencies
 
