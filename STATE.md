@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 5 — Guards: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P5** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Current phase:** 5 — Guards: **COMPLETE**
+- **Last completed checkpoint:** **P5** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `329aba2` (adversarial suite runs in CI against the postgres service)
 - **Next action:** fresh session for **Phase 6 — Packaging & demo polish**. Context: `CLAUDE.md`, this file, `demo/scenarios.md`, README.
 
 ## Checkpoint P5 status
