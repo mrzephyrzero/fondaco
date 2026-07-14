@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 2 — Executor + Postgres adapter: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P2** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally against the compose database)
+- **Current phase:** 2 — Executor + Postgres adapter: **COMPLETE**
+- **Last completed checkpoint:** **P2** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `1f94edf` (including integration tests against the postgres service container)
 - **Next action:** fresh session for **Phase 3 — Planner (LLM generates plans from schema only)**. Context: `CLAUDE.md`, this file, `design/plan-dsl.md`, `planner/prompts/`.
 
 ## Checkpoint P2 status
