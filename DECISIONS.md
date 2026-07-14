@@ -27,6 +27,9 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | Small groups are dropped, not masked-in-place | A masked cell beside a visible count still leaks the count; only removal kills the binary-search primitive |
 | 2026-07-14 | Query budget is in-memory, per session cookie; guards fail closed (k=0/negative → default) | V1 demo scope: no auth, budget resets on cookie clear (documented residual risk); a guard can be tuned but never disabled |
 | 2026-07-14 | Guard defaults k=5, query_budget=20 | Reasonable demo values; small enough to demonstrate suppression and the hard stop, configurable via env |
+| 2026-07-14 | Sampling params (`temperature`, …) are per-profile endpoint config spread into the request body; the client never inspects the model name | `claude-sonnet-5` rejects the deprecated `temperature`; the cloud profile simply omits it while local profiles pin `temperature=0` — no model allowlist, no conditional logic in `planner/client.py` |
+| 2026-07-14 | **Anthropic cloud (`claude-sonnet-5`) is the default planner**; local Ollama is the documented fallback profile | Human decision (credits funded). Verified live: valid plan on the first attempt, and the canary test passed on the real external API path. Phase 6 ships both profiles documented |
+| 2026-07-14 | Python 3.12 locally, matching the pinned CI/Docker version | Human decision — removes the 3.13-vs-3.12 dev/CI parity gap (human confirms the install separately) |
 
 ## Dependencies
 

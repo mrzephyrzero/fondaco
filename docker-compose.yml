@@ -12,6 +12,9 @@ services:
       FONDACO_LLM_API_KEY: ${FONDACO_LLM_API_KEY:-}
       FONDACO_LLM_MODEL: ${FONDACO_LLM_MODEL:-qwen2.5-coder:7b}
       FONDACO_LLM_TIMEOUT_S: ${FONDACO_LLM_TIMEOUT_S:-180}
+      # Local-fallback profile pins temperature for reproducibility. The cloud
+      # profile omits it (claude-sonnet-5 rejects the deprecated param).
+      FONDACO_LLM_TEMPERATURE: ${FONDACO_LLM_TEMPERATURE:-0}
       FONDACO_EGRESS_CLEARANCE: ${FONDACO_EGRESS_CLEARANCE:-internal}
       FONDACO_AUDIT_LOG: /data/audit.jsonl
     volumes:

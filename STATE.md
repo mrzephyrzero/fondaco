@@ -19,16 +19,27 @@ Verification 2026-07-14: 111 tests green (92 unit + 17 integration + 2 adversari
 
 `boundary/guards.py` — `suppress_small_groups` (k-threshold, drop not mask), `QueryBudget` (per-session hard stop, all-or-nothing), `config_from_env` (fail closed: k<1/negative/garbage → default, guard cannot be disabled). Wired: `executor/runner.py` suppresses every aggregate (new `RunResult.suppressed_groups`); `api/main.py` charges the budget before execution, emits new `guard_decision` audit event, sets a `fondaco_session` cookie; UI shows budget used/limit and suppression notices. `boundary/audit.py` gains `EVENT_GUARD_DECISION`.
 
-## Notes for Phase 6 (and the human)
+## Canary re-run on the REAL external API path (2026-07-14) — **PASS**
 
-- **Scope note (logged in DECISIONS.md):** the k-threshold guards *every* aggregate result, not just planner-facing ones — the plan text's "toward the planner in repair loops" scope would guard nothing here, since the repair loop feeds back only validation errors (P3 canary). The reader in the UI is the attacker.
-- Demo tuning: default k=5 means a legitimate question whose grouping yields a <5-row group shows a suppression notice — worth surfacing in the Phase 6 walkthrough as a feature, and picking scenario questions whose groups are comfortably above k.
-- README now has an architecture-adjacent "Guards" + "What this does NOT protect against" section; Phase 6 adds the ≤1-screen architecture overview above install steps.
+The P3 canary claim had only ever been proven against a mocked transport. Re-run against the live cloud endpoint, after fixing the `temperature` rejection (see DECISIONS.md):
+
+- **Endpoint:** `https://api.anthropic.com/v1`, `claude-sonnet-5` (credits funded by the human).
+- **Planted:** 3 high-entropy sentinel tokens (e.g. `Z9QX7KWJ4PLUMBAT2VXQZZ8NROGGLE`) written as **row values** in `customers` — strings no model would regenerate on its own, so a hit could only mean the literal row crossed the wire. Verified readable from the DB first, so a leak was genuinely possible.
+- **Inspected:** the **serialized outbound network payload** — the transport wraps a real `httpx.HTTPTransport` and records `request.content`, the exact bytes handed to the socket (not a pre-serialization dict). 1 request, 7 370 bytes.
+- **Result:** planner returned a **valid plan on the first attempt** (`query,aggregate,present`); **0 of 3 canaries appeared in anything leaving the perimeter.**
+- Durable, key-gated test: `tests/integration/test_canary_live.py` (skipped without `FONDACO_LLM_API_KEY`, so CI stays secret-free; the mocked `test_canary.py` remains the CI guard).
+
+## Notes for Phase 6
+
+- **Two planner profiles** to package and document: **cloud (default)** — Anthropic `claude-sonnet-5`, omits `temperature`; **local fallback** — host Ollama `qwen2.5-coder:7b`, pins `temperature=0`, `TIMEOUT_S=180`. Compose still defaults to the local profile so the demo runs keyless; `.env.example` documents both. Decide in Phase 6 which one `docker compose up` should pick by default.
+- **Scope note (logged in DECISIONS.md):** the k-threshold guards *every* aggregate result, not just planner-facing ones — the plan text's "toward the planner in repair loops" scope would guard nothing here, since the repair loop feeds back only validation errors. The reader in the UI is the attacker.
+- Demo tuning: default k=5 means a legitimate question whose grouping yields a <5-row group shows a suppression notice — worth surfacing in the walkthrough as a feature, and picking scenario questions whose groups are comfortably above k.
+- README has "Guards" + "What this does NOT protect against"; Phase 6 adds the ≤1-screen architecture overview above install steps.
+- Dev env: Python 3.12 (matches CI/Docker) — the previous 3.13 local venv gap is closed.
 
 ## Open questions (for the human)
 
-1. **Anthropic credits** — still low; demo planner defaults to host Ollama. Top up to use `claude-sonnet-5`.
-2. **Local Python** — 3.13/3.11 locally vs pinned 3.12 in CI/Docker. Fine, or install 3.12 for parity?
+_None._
 
 ## INTERFACE_CHANGE_REQUEST
 

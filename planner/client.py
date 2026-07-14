@@ -102,6 +102,7 @@ class PlannerClient:
         max_attempts: int = 2,
         timeout_s: float = 60.0,
         prompt_version: str = DEFAULT_PROMPT_VERSION,
+        sampling: dict[str, object] | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -111,13 +112,17 @@ class PlannerClient:
         self._timeout_s = timeout_s
         self._prompt_version = prompt_version
         self._system_prompt = _load_prompt(prompt_version)
+        # Sampling params are endpoint-profile configuration, not client logic:
+        # a profile whose model rejects a param (e.g. temperature) simply does
+        # not set it. The client never inspects the model name.
+        self._sampling = {"temperature": 0} if sampling is None else dict(sampling)
         self._transport = transport
 
     def _complete(self, messages: list[dict]) -> str:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        body = {"model": self._model, "temperature": 0, "messages": messages}
+        body = {"model": self._model, "messages": messages, **self._sampling}
         try:
             with httpx.Client(transport=self._transport, timeout=self._timeout_s) as client:
                 response = client.post(
@@ -195,6 +200,23 @@ class PlannerClient:
         )
 
 
+def sampling_from_env() -> dict[str, object]:
+    """Sampling params for the configured endpoint profile.
+
+    `FONDACO_LLM_TEMPERATURE` unset (or "omit") sends no temperature at all —
+    the cloud default profile, whose model rejects the deprecated param. A
+    profile that wants it (e.g. local Ollama, for reproducibility) sets a
+    number explicitly.
+    """
+    raw = os.environ.get("FONDACO_LLM_TEMPERATURE")
+    if raw is None or raw.strip().lower() in ("", "omit", "none"):
+        return {}
+    try:
+        return {"temperature": float(raw)}
+    except ValueError:  # fail safe: send nothing rather than a bogus param
+        return {}
+
+
 def client_from_env(transport: httpx.BaseTransport | None = None) -> PlannerClient:
     return PlannerClient(
         base_url=os.environ.get("FONDACO_LLM_BASE_URL", "https://api.anthropic.com/v1"),
@@ -202,5 +224,6 @@ def client_from_env(transport: httpx.BaseTransport | None = None) -> PlannerClie
         model=os.environ.get("FONDACO_LLM_MODEL", "claude-sonnet-5"),
         max_attempts=int(os.environ.get("FONDACO_LLM_MAX_ATTEMPTS", "2")),
         timeout_s=float(os.environ.get("FONDACO_LLM_TIMEOUT_S", "60")),
+        sampling=sampling_from_env(),
         transport=transport,
     )
