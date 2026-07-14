@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Plan — Fondaco{% endblock %}
+{% block content %}
+<p><a href="/">&larr; all plans</a> · <a href="/audit?plan={{ plan_id }}">audit trail for this plan</a></p>
+<h2>{{ r.question }}</h2>
+<p>
+  <span class="badge st-{{ r.status }}">{{ r.status }}</span>
+  {% if r.approver %}<span class="muted">decided by {{ r.approver }}</span>{% endif %}
+  <span class="muted">plan {{ plan_id }}</span>
+</p>
+
+<h3>Policy decision</h3>
+<p class="{{ 'allow' if r.decision.allow else 'deny' }}">
+  {{ 'ALLOWED' if r.decision.allow else 'DENIED' }} — {{ r.decision.detail }}
+</p>
+{% if not r.decision.allow %}
+<p class="muted">A policy denial cannot be overridden by approval (label model §5).</p>
+{% endif %}
+
+<h3>Steps</h3>
+<table>
+  <tr><th>id</th><th>step</th><th>reads / does</th><th>label</th></tr>
+  {% for step in r.plan.steps %}
+  <tr>
+    <td>{{ step.id }}</td>
+    <td>{{ step.type }}</td>
+    <td>
+      {% if step.type == 'query' %}
+        <pre>{{ step.template }}</pre>
+        {% if step.params %}
+          <span class="muted">params:</span>
+          {% for name, spec in step.params.items() %}
+            <code>{{ name }} = {{ spec.value }} ({{ spec.type }})</code>
+          {% endfor %}
+        {% endif %}
+      {% elif step.type == 'aggregate' %}
+        {% for op in step.ops %}<code>{{ op.op }}({{ op.column }}) as {{ op.as }}</code>{% endfor %}
+        {% if step.group_by %}<span class="muted">grouped by {{ step.group_by|join(', ') }}</span>{% endif %}
+        <span class="muted">on {{ step.input }}</span>
+      {% else %}
+        presents {{ step.input }} as {{ step.format }} — “{{ step.title }}”
+      {% endif %}
+    </td>
+    <td>{% if r.labels.get(step.id) %}<span class="badge label-{{ r.labels[step.id] }}">{{ r.labels[step.id] }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if r.status == 'pending' %}
+<h3>Decision</h3>
+<form method="post" style="display:inline" action="/plans/{{ plan_id }}/approve">
+  <input type="text" name="approver" placeholder="your name" style="width:12rem">
+  <button class="approve" type="submit">Approve &amp; execute</button>
+</form>
+<form method="post" style="display:inline" action="/plans/{{ plan_id }}/reject">
+  <input type="hidden" name="approver" value="">
+  <button class="reject" type="submit">Reject</button>
+</form>
+<p class="muted">Nothing runs until a human approves. Rejected plans are never executed.</p>
+{% endif %}
+
+{% if r.status == 'failed' %}<p class="error">Execution failed: {{ r.error }}</p>{% endif %}
+
+{% if r.result %}
+<h3>{{ r.result.title }}
+  <span class="badge label-{{ r.result.label }}">{{ r.result.label }}</span></h3>
+<table>
+  <tr>{% for c in r.result.columns %}<th>{{ c }}</th>{% endfor %}</tr>
+  {% for row in r.result.rows %}
+  <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+  {% endfor %}
+</table>
+<p class="muted">result digest <code>{{ r.result.digest }}</code></p>
+{% endif %}
+{% endblock %}

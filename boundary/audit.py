@@ -95,6 +95,13 @@ class AuditLog:
         self._prev_hash = entry["hash"]
         return entry
 
+    def entries(self) -> list[dict]:
+        """Read-only view of all entries, in append order."""
+        if not self._path.exists():
+            return []
+        with self._path.open(encoding="utf-8") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
     def verify(self) -> VerifyResult:
         """Recompute the whole chain; report the first broken entry."""
         if not self._path.exists():

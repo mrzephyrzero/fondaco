@@ -2,32 +2,34 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 3 — Planner: **COMPLETE**
-- **Last completed checkpoint:** **P3** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `e546dc3` (unit + canary in CI; live scenario run local-only by design)
-- **Next action:** fresh session for **Phase 4 — API + approval flow + audit UI**. Context: `CLAUDE.md`, this file, `design/plan-dsl.md` (rendering), Phase 1 audit format (`boundary/audit.py`).
+- **Current phase:** 4 — API + approval flow + audit UI: **complete pending CI confirmation** (checkpoint below)
+- **Last completed checkpoint:** **P4** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Next action:** fresh session for **Phase 5 — Guards: cardinality thresholds and query budgets**. Context: `CLAUDE.md`, this file, `design/label-model.md`, Phase 1 policy engine (`boundary/policy.py`).
 
-## Checkpoint P3 status
+## Checkpoint P4 status
 
 | Item | Status |
 |---|---|
-| 8/10 scenario questions → valid, policy-passing plan within 2 attempts | ✅ 8/9 answerable pass **and execute end-to-end** (stricter than required); Q10 policy-denied by design; Q9 (monthly grouping) failed — within budget. Run on **Ollama qwen2.5-coder:7b**, prompt v3, clearance `internal` |
-| Canary test green: planted row values never leave the perimeter | ✅ `tests/integration/test_canary.py`: canaries inserted as rows; full ask-flow incl. forced repair round; all outbound LLM request bodies captured and clean |
-| Base URL swap to local Ollama = zero code changes | ✅ demonstrated beyond doubt: the entire checkpoint run used Ollama via `FONDACO_LLM_BASE_URL` — no code changes. Documented in README "Planner configuration" |
+| Full loop demo-able in < 2 minutes from `docker compose up` | ✅ **64.7s** measured (compose up 17.8s + real LLM planning via host Ollama 46.7s + approve/execute), warm model. First-ever request adds ~2 min one-time Ollama model load; a funded cloud API planner takes seconds |
+| Rejected plan provably never executed | ✅ `tests/unit/test_api.py::test_rejected_plan_is_provably_never_executed`: counting adapter shows 0 executions after reject and after post-reject approve (409); policy-denied plans equally unapprovable |
+| Audit view shows complete chain for every request | ✅ six-event chain per request rendered at `/audit` with verified-chain banner, event/plan filters, per-plan links; chains survive restarts (named volume). Unit-asserted + manually verified over two demo runs |
 
-Scenario outcomes (2026-07-14, qwen2.5-coder:7b, prompt v3): Q1–Q8 ok (Q5 `public`, rest `internal`), Q9 `attempts_exhausted`, Q10 `policy_deny:label_exceeds_clearance` (expected).
+Verification 2026-07-14: 72 unit + 17 integration tests green, ruff clean.
 
-## Notes for Phase 4 (and the human)
+## What Phase 4 added
 
-- **Anthropic endpoint (the human's chosen default) is currently blocked: API credit balance too low** (HTTP 400 from `api.anthropic.com`; auth itself works). When topped up, re-run `pytest tests/integration/test_scenarios_llm.py` with `FONDACO_LLM_API_KEY` set — expected to beat the 7B model's 8/9.
-- Prompt lesson (v3 changelog): the policy label-scan reads any `FROM` as a table reference, so `EXTRACT(YEAR FROM col)` → `restricted` deny. Policy engine deliberately left untouched (fail closed, operating rule 5); prompt teaches half-open date ranges instead. Phase 7 should attack this scan.
-- Q8 passed but returned 0 rows (model filtered `status = 'canceled'`, data says `cancelled`) — plan quality, not boundary concern; consider a column-comment hint in the demo schema (Phase 6 polish).
-- `PlanningTrace` (attempt history) is returned by `PlannerClient.generate_plan` and awaits wiring into `boundary.audit` in Phase 4.
-- Local inference needs `FONDACO_LLM_TIMEOUT_S=180`.
+`api/main.py` app factory (ask → plan page with per-step labels + policy reasoning → approve/reject → labeled results); `boundary.policy.step_labels` public helper; `AuditLog.entries()` read view; `PlanningTrace` wired into audit (per-attempt validation events); Jinja templates + vendored htmx 2.0.4; compose: LLM env (host-Ollama default), audit volume.
+
+## Notes for Phase 5 (and the human)
+
+- Guards hook points: `boundary/guards.py` still a stub. k-threshold applies to aggregates flowing back toward the planner in repair loops — note the current repair loop (planner/client.py) feeds back only *validation errors*, never results; the guard surface will matter when repair-on-execution or iterative planning appears. Per-session query budget: natural enforcement point is `create_app`'s ask/approve handlers + runner.
+- Approval identity is self-declared (no auth in V1, DECISIONS.md) — worth an explicit line in the Phase 7 threat model.
+- Anthropic credits still pending (open question) — compose demo defaults to host Ollama meanwhile.
 
 ## Open questions (for the human)
 
-1. **Anthropic credits** — top up to run the checkpoint on the chosen frontier endpoint (current pass used local Ollama; checkpoint formally satisfied either way).
-2. **Local Python** — dev machine has 3.13/3.11, not 3.12; CI and Docker pin 3.12. Fine, or install 3.12 for parity?
+1. **Anthropic credits** — top up to switch the demo planner to `claude-sonnet-5` (faster + stronger than local 7B).
+2. **Local Python** — 3.13/3.11 locally vs pinned 3.12 in CI/Docker. Fine, or install 3.12 for parity?
 
 ## INTERFACE_CHANGE_REQUEST
 

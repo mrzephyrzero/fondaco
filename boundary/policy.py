@@ -107,6 +107,21 @@ def query_label(template: str, schema_labels: dict) -> Label:
     return label
 
 
+def step_labels(plan: dict, schema_labels: dict) -> dict[str, Label]:
+    """Per-step labels for a validated plan (query → scan; others inherit).
+
+    Raises KeyError on dangling references — callers must treat that as deny.
+    Public so the approval UI renders exactly what policy computed.
+    """
+    labels: dict[str, Label] = {}
+    for step in plan["steps"]:
+        if step["type"] == "query":
+            labels[step["id"]] = query_label(step["template"], schema_labels)
+        else:  # aggregate / present inherit; aggregation never declassifies
+            labels[step["id"]] = labels[step["input"]]
+    return labels
+
+
 def evaluate(plan: dict, schema_labels: dict, clearance: object) -> PolicyDecision:
     """Decide egress for a validated plan. Never raises; any fault → deny."""
     try:
@@ -115,17 +130,12 @@ def evaluate(plan: dict, schema_labels: dict, clearance: object) -> PolicyDecisi
         except LabelError:
             return _deny("unknown_clearance", f"clearance is not a known level: {clearance!r}")
 
-        step_labels: dict[str, Label] = {}
-        for step in plan["steps"]:
-            if step["type"] == "query":
-                step_labels[step["id"]] = query_label(step["template"], schema_labels)
-            else:  # aggregate / present inherit; aggregation never declassifies
-                input_label = step_labels.get(step["input"])
-                if input_label is None:
-                    return _deny("missing_step", f"step {step['id']!r} references unknown input")
-                step_labels[step["id"]] = input_label
+        try:
+            labels = step_labels(plan, schema_labels)
+        except KeyError:
+            return _deny("missing_step", "a step references an unknown input")
 
-        plan_label = step_labels[plan["steps"][-1]["id"]]
+        plan_label = labels[plan["steps"][-1]["id"]]
         result_name = plan_label.name.lower()
         clearance_name = clearance_label.name.lower()
         if plan_label <= clearance_label:

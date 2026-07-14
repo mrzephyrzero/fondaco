@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Audit — Fondaco{% endblock %}
+{% block content %}
+<h2>Audit log</h2>
+<p>
+  {% if verification.ok %}
+    <span class="allow">✓ hash chain verified</span> <span class="muted">({{ verification.entries }} entries)</span>
+  {% else %}
+    <span class="deny">✗ CHAIN BROKEN at seq {{ verification.bad_seq }} — {{ verification.reason }}</span>
+  {% endif %}
+</p>
+<form method="get" action="/audit">
+  <label>event
+    <select name="event">
+      <option value="">all</option>
+      {% for ev in ['question_received','plan_generated','validation_result','policy_decision','approval','execution_digest'] %}
+      <option value="{{ ev }}" {% if ev == event_filter %}selected{% endif %}>{{ ev }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>plan id <input type="text" name="plan" value="{{ plan_filter }}" style="width:22rem"></label>
+  <button type="submit">Filter</button>
+</form>
+<table>
+  <tr><th>seq</th><th>time (UTC)</th><th>event</th><th>payload</th><th>plan</th></tr>
+  {% for e in entries %}
+  <tr>
+    <td>{{ e.seq }}</td>
+    <td class="muted">{{ e.ts[:19] }}</td>
+    <td><code>{{ e.event }}</code></td>
+    <td><code>{{ e.payload | tojson }}</code></td>
+    <td>{% if e.payload.plan_id %}<a href="/plans/{{ e.payload.plan_id }}">view</a>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% if not entries %}<p class="muted">No entries match.</p>{% endif %}
+{% endblock %}

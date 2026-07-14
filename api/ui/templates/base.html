@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Fondaco{% endblock %}</title>
+  <script src="/static/htmx.min.js"></script>
+  <style>
+    :root { --ink:#1a1a1a; --muted:#666; --line:#ddd; --accent:#0b5d3b;
+            --deny:#a4262c; --warn:#8a6d00; }
+    body { font:16px/1.5 system-ui, sans-serif; color:var(--ink); margin:0; }
+    header { border-bottom:2px solid var(--accent); padding:0.7rem 1.2rem;
+             display:flex; gap:1.2rem; align-items:baseline; }
+    header h1 { font-size:1.1rem; margin:0; }
+    header h1 a { color:var(--accent); text-decoration:none; }
+    header .tagline { color:var(--muted); font-size:0.85rem; }
+    header nav a { margin-left:1rem; color:var(--ink); }
+    main { max-width:60rem; margin:1.2rem auto; padding:0 1.2rem; }
+    table { border-collapse:collapse; width:100%; margin:0.6rem 0; }
+    th, td { border:1px solid var(--line); padding:0.3rem 0.55rem; text-align:left;
+             font-size:0.92rem; vertical-align:top; }
+    th { background:#f5f5f4; }
+    code, pre { background:#f6f6f5; padding:0.1rem 0.3rem; font-size:0.88rem; }
+    pre { padding:0.6rem; overflow-x:auto; }
+    .badge { display:inline-block; padding:0.05rem 0.5rem; border-radius:0.7rem;
+             font-size:0.78rem; border:1px solid var(--line); }
+    .label-public { background:#e8f4ea; } .label-internal { background:#eaf1fb; }
+    .label-confidential { background:#fdf3d7; } .label-restricted { background:#fde7e9; }
+    .st-pending { background:#fdf3d7; } .st-executed { background:#e8f4ea; }
+    .st-denied, .st-rejected, .st-failed { background:#fde7e9; }
+    .allow { color:var(--accent); font-weight:600; } .deny { color:var(--deny); font-weight:600; }
+    button { padding:0.4rem 1rem; border:1px solid var(--line); cursor:pointer; }
+    button.approve { background:var(--accent); color:#fff; border-color:var(--accent); }
+    button.reject { background:#fff; color:var(--deny); border-color:var(--deny); }
+    input[type=text] { padding:0.45rem; width:100%; box-sizing:border-box; }
+    .error { color:var(--deny); }
+    .muted { color:var(--muted); font-size:0.88rem; }
+    .spinner { display:none; } .htmx-request .spinner { display:inline; }
+  </style>
+</head>
+<body>
+<header>
+  <h1><a href="/">Fondaco</a></h1>
+  <span class="tagline">Data stays home. Plans cross.</span>
+  <nav><a href="/audit">Audit log</a></nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

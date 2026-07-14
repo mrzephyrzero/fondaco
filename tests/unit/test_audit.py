@@ -114,4 +114,4 @@ def test_unserializable_payload_fails_closed(tmp_path):
 
 def test_no_mutation_api():
     exposed = {name for name in dir(AuditLog) if not name.startswith("_")}
-    assert exposed == {"append", "verify"}
+    assert exposed == {"append", "verify", "entries"}  # append-only + read-only views

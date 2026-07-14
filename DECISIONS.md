@@ -19,6 +19,10 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | LLM returns steps only; the boundary builds the plan envelope | `plan_id` is boundary-assigned per plan-dsl.md §2; question copied verbatim — the model cannot forge ids or restate the question |
 | 2026-07-14 | Default planner endpoint: Anthropic OpenAI-compat (`claude-sonnet-5`), human decision | Human chose Anthropic for the live checkpoint run; any OpenAI-compatible URL is a config swap |
 | 2026-07-14 | Scenario 10 deliberately policy-denied | The deny path is part of the demo; checkpoint margin computed over the 9 answerable questions |
+| 2026-07-14 | Plan store is in-memory; only the audit log persists | V1 demo scope: the approval queue does not survive an app restart, the tamper-evident record does (named volume) |
+| 2026-07-14 | No authentication in V1; approver identity is a self-declared form field | Approval flow is the demo, identity/authz is deployment-specific; documented limitation, revisited in Phase 7/8 |
+| 2026-07-14 | htmx 2.0.4 vendored into `api/ui/static` | No CDN: the five-minute stranger demo must work offline; no build chain (frozen stack) |
+| 2026-07-14 | Compose planner default: host Ollama via `host.docker.internal` | Demo works without any API key (Anthropic credits still pending); cloud API is a `.env` override |
 
 ## Dependencies
 
@@ -32,6 +36,8 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-13 | `ruff` (dev) | Single tool for lint + format, no plugin chain |
 | 2026-07-13 | `jsonschema` | Plans are "schema-validatable" by frozen stack decision (plan §1); mature reference implementation beats hand-rolling security-critical validation |
 | 2026-07-14 | `httpx` promoted dev → runtime | Planner LLM client; raw HTTP to any OpenAI-compatible endpoint keeps the outbound surface auditable — no vendor SDK |
+| 2026-07-14 | `jinja2` | Frozen stack choice (plan §1): server-rendered approval/audit UI |
+| 2026-07-14 | `python-multipart` | FastAPI form parsing for the approval flow (ask/approve/reject forms) |
 
 ## Sign-offs
 
