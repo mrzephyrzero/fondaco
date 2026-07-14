@@ -16,6 +16,9 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | `fondaco_ro` password is hardcoded demo-grade in `03_readonly_role.sql` | initdb `.sql` scripts cannot read env vars; documented in `.env.example`; production hardening out of V1 scope |
 | 2026-07-14 | `decimal.Decimal` accepted as numeric in executor aggregates | Postgres `numeric` columns arrive as Decimal; exact arithmetic is preferable for money; bool still explicitly excluded |
 | 2026-07-14 | Compose DB stays unpublished; local integration testing uses a gitignored `docker-compose.override.yml` | Keeps the committed boundary statement (DB reachable only from the compose network) while allowing host-side tests; CI uses a service container |
+| 2026-07-14 | LLM returns steps only; the boundary builds the plan envelope | `plan_id` is boundary-assigned per plan-dsl.md §2; question copied verbatim — the model cannot forge ids or restate the question |
+| 2026-07-14 | Default planner endpoint: Anthropic OpenAI-compat (`claude-sonnet-5`), human decision | Human chose Anthropic for the live checkpoint run; any OpenAI-compatible URL is a config swap |
+| 2026-07-14 | Scenario 10 deliberately policy-denied | The deny path is part of the demo; checkpoint margin computed over the 9 answerable questions |
 
 ## Dependencies
 
@@ -28,6 +31,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-13 | `httpx` (dev) | Required by FastAPI's TestClient for the health smoke test |
 | 2026-07-13 | `ruff` (dev) | Single tool for lint + format, no plugin chain |
 | 2026-07-13 | `jsonschema` | Plans are "schema-validatable" by frozen stack decision (plan §1); mature reference implementation beats hand-rolling security-critical validation |
+| 2026-07-14 | `httpx` promoted dev → runtime | Planner LLM client; raw HTTP to any OpenAI-compatible endpoint keeps the outbound surface auditable — no vendor SDK |
 
 ## Sign-offs
 
