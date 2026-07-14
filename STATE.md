@@ -2,24 +2,25 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 1 — Boundary core: **COMPLETE**
-- **Last completed checkpoint:** **P1** (2026-07-13) — all three items pass; CI green on GitHub Actions for commit `b84a9e6`
-- **Next action:** fresh session for **Phase 2 — Executor + Postgres adapter**. Context: `CLAUDE.md`, this file, `design/adapter-contract.md`, `design/plan-dsl.md`.
+- **Current phase:** 2 — Executor + Postgres adapter: **complete pending CI confirmation** (checkpoint below)
+- **Last completed checkpoint:** **P2** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally against the compose database)
+- **Next action:** fresh session for **Phase 3 — Planner (LLM generates plans from schema only)**. Context: `CLAUDE.md`, this file, `design/plan-dsl.md`, `planner/prompts/`.
 
-## Checkpoint P1 status
+## Checkpoint P2 status
 
 | Item | Status |
 |---|---|
-| 100% of negative-case tests pass (≥ 15 hostile inputs) | ✅ 24 hostile cases in `tests/unit/test_validator_hostile.py`, all rejected with machine-readable codes; count asserted in-test |
-| Audit log append-only by construction (tamper detection) | ✅ `boundary/audit.py` hash chain; tests detect edit / middle-deletion / reorder / garbage line; tampered log refuses further appends. Known limit (documented + in DECISIONS.md): tail truncation needs external head anchoring — Phase 7 item |
-| Every error path in `/boundary` fails closed (grep-audit) | ✅ no bare `except`, no `except: pass`; sole `allow=True` sits after the label ≤ clearance check; validator/policy wrap all faults into invalid/deny |
+| Hand-written plan (no LLM) runs end-to-end with labeled results | ✅ `tests/integration/test_end_to_end_plan.py`: query→aggregate→present over 20k orders returns per-region counts+revenue, label `internal` |
+| DB user provably cannot write (fails at the DB layer) | ✅ `tests/integration/test_readonly_role.py`: INSERT/UPDATE/DELETE/CREATE/DROP/ALTER as `fondaco_ro` all denied with SQLSTATE 42501/25006 |
+| Label propagation verified on a multi-step plan | ✅ restricted `customers` → aggregate → present stays `restricted` (integration) + unit propagation tests with fake adapter |
 
-Local verification 2026-07-13: `ruff check` + `ruff format --check` clean, `pytest -q` 51 passed.
+Verification 2026-07-14: 73 tests green (59 unit + 14 integration), ruff clean, `docker compose up` seeds ~51k rows and app connects as the read-only role (`/health` db:ok).
 
-## Notes for Phase 2
+## Notes for Phase 3
 
-- `boundary/policy.py` labels query steps by whole-table over-approximation (see DECISIONS.md); the executor's per-step labeling in Phase 2 uses actual result columns via the adapter and may be tighter, but must never be lower than policy's static bound.
-- Policy takes schema labels as a plain dict `{table: {"label": …, "columns": {col: …}}}`; adapt from `AnnotatedSchema` when the Postgres adapter lands.
+- Adapter surface for the planner: `PostgresAdapter.get_schema()` returns `AnnotatedSchema` (labels + row counts, never sample values); `executor/adapters/contract.py:schema_labels_dict` bridges to `boundary.policy.evaluate`.
+- Two findings fed back into code this phase: Postgres `numeric` → `Decimal` in aggregates; e2e demo plans must stay under adapter `max_rows` (10 000 raw rows) — scenario questions in `demo/scenarios.md` should aggregate early or filter tightly.
+- Windows dev quirk: use `127.0.0.1`, not `localhost`, in local test DSNs (IPv6 stall: 18 min vs 0.7 s suite time).
 
 ## Open questions (for the human)
 

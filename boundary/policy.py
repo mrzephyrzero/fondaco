@@ -89,7 +89,12 @@ def _referenced_tables(template: str) -> list[str] | None:
     return names
 
 
-def _query_step_label(template: str, schema_labels: dict) -> Label:
+def query_label(template: str, schema_labels: dict) -> Label:
+    """Public labeling helper, shared with the executor (STATE.md Phase-2 note).
+
+    Sound over-approximation of label-model.md §4: max over every column of
+    every FROM/JOIN table; unresolvable → restricted. Never lowers a label.
+    """
     tables = _referenced_tables(template)
     if tables is None or not tables:
         return Label.RESTRICTED
@@ -113,7 +118,7 @@ def evaluate(plan: dict, schema_labels: dict, clearance: object) -> PolicyDecisi
         step_labels: dict[str, Label] = {}
         for step in plan["steps"]:
             if step["type"] == "query":
-                step_labels[step["id"]] = _query_step_label(step["template"], schema_labels)
+                step_labels[step["id"]] = query_label(step["template"], schema_labels)
             else:  # aggregate / present inherit; aggregation never declassifies
                 input_label = step_labels.get(step["input"])
                 if input_label is None:

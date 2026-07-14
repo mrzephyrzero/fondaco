@@ -12,6 +12,10 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-13 | Line endings normalized to LF via `.gitattributes` | Windows dev host, Linux runtime/CI |
 | 2026-07-13 | Policy labels query steps by whole-table over-approximation (max over all columns of every FROM/JOIN table; unresolvable → `restricted`) | Sound upper bound on label-model.md §4 "columns read" — can only raise labels, never lower; column-precise resolution deferred (implementation detail, not an interface change) |
 | 2026-07-13 | Audit hash chain cannot detect tail truncation from the file alone | Inherent to hash chains; noted in `boundary/audit.py` for the Phase 7 threat model (external head anchoring is the mitigation) |
+| 2026-07-14 | Demo dataset keeps PII in its own `customers` table (`restricted`); operational tables are uniformly `internal` | The whole-table label over-approximation would otherwise mark every orders query `restricted`; normalization is also what a real deployment would do |
+| 2026-07-14 | `fondaco_ro` password is hardcoded demo-grade in `03_readonly_role.sql` | initdb `.sql` scripts cannot read env vars; documented in `.env.example`; production hardening out of V1 scope |
+| 2026-07-14 | `decimal.Decimal` accepted as numeric in executor aggregates | Postgres `numeric` columns arrive as Decimal; exact arithmetic is preferable for money; bool still explicitly excluded |
+| 2026-07-14 | Compose DB stays unpublished; local integration testing uses a gitignored `docker-compose.override.yml` | Keeps the committed boundary statement (DB reachable only from the compose network) while allowing host-side tests; CI uses a service container |
 
 ## Dependencies
 

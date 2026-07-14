@@ -5,7 +5,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://fondaco:${POSTGRES_PASSWORD:-fondaco-dev}@db:5432/fondaco
+      # The app connects as the SELECT-only role; only init scripts run as the owner.
+      DATABASE_URL: postgresql://fondaco_ro:fondaco-ro-dev@db:5432/fondaco
     depends_on:
       db:
         condition: service_healthy
@@ -21,6 +22,8 @@ services:
       POSTGRES_USER: fondaco
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fondaco-dev}
       POSTGRES_DB: fondaco
+    volumes:
+      - ./demo/dataset/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fondaco -d fondaco"]
       interval: 5s

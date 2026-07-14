@@ -8,6 +8,23 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fondaco
+          POSTGRES_PASSWORD: fondaco-dev
+          POSTGRES_DB: fondaco
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fondaco -d fondaco"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      FONDACO_TEST_ADMIN_DSN: postgresql://fondaco:fondaco-dev@localhost:5432/fondaco
+      FONDACO_TEST_DSN: postgresql://fondaco_ro:fondaco-ro-dev@localhost:5432/fondaco
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
