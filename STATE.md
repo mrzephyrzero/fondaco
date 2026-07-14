@@ -2,8 +2,8 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 7 — Adversarial phase: **complete pending CI confirmation** (checkpoint below)
-- **Last completed checkpoint:** **P7** (2026-07-14) — pending only the pushed CI run turning green (all items verified locally)
+- **Current phase:** 7 — Adversarial phase: **COMPLETE**
+- **Last completed checkpoint:** **P7** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `873cf23`
 - **Next action:** fresh session for **Phase 8 — Release readiness** (human-heavy). Context: `CLAUDE.md`, this file, `design/threat-model.md`, README, SECURITY.md; tasks: license decision executed (Apache-2.0 already chosen) + headers/NOTICE, finalize SECURITY.md, ROADMAP four-design narrative, blog #1 + Show HN drafts.
 
 ## Checkpoint P7 status
