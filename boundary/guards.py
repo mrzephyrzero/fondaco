@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Cardinality thresholds and per-session query budgets.
 
 Honest mitigation, not a solution: a *sequence* of individually legal

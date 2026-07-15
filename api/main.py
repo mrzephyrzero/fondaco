@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """FastAPI app: ask → plan → approve → execute, fully audited.
 
 Manual approval is the point, not a limitation: no plan executes without

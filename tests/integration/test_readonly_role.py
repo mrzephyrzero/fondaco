@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Checkpoint P2: the DB user provably cannot write — denial at the DB layer."""
 
 import pytest

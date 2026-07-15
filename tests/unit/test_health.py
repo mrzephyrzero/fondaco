@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Smoke test: the app boots and /health answers."""
 
 from fastapi.testclient import TestClient

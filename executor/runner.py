@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Deterministic executor for validated plans (design/plan-dsl.md).
 
 No LLM involvement: steps run exactly as written. Every derived result

@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Adapter contract types — a transcription of design/adapter-contract.md §2.
 
 These shapes are frozen by the interface; do not extend them here. The

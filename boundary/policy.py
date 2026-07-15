@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Label/egress policy engine (design/label-model.md §2–5).
 
 Evaluates a *validated* plan against schema labels and an endpoint

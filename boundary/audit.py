@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Append-only audit log: JSONL with a SHA-256 hash chain.
 
 Every boundary crossing is logged: question, generated plan, validation

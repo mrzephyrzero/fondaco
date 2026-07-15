@@ -1,9 +1,10 @@
 # Threat Model
 
-**Status:** Phase 7 (adversarial). This document ships with the project — it is
-a feature, not an internal note. It records what was attacked, what happened,
-and what remains an accepted risk. It is honest by design: it includes a real
-critical defect that the adversarial pass found and fixed.
+**Status:** Finalized for V1 (adversarial pass complete). This document ships
+with the project — it is a feature, not an internal note. It records what was
+attacked, what happened, and what remains an accepted risk. It is honest by
+design: it includes a real critical defect that the adversarial pass found and
+fixed.
 
 ## 1. Security claim under test
 

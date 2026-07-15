@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Adversarial: aggregate binary-search exfiltration, and how guards answer it.
 
 Attack: one victim order (a unique id) has an unknown `total_amount`. Each

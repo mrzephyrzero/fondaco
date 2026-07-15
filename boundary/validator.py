@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Plan validation against the Plan DSL v0 (design/plan-dsl.md §4).
 
 Two layers, both mandatory: JSON Schema (boundary/plan_schema.json) and

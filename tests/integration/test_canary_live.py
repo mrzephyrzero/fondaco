@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Canary test on the REAL external API path (Checkpoint P3, cloud profile).
 
 `test_canary.py` proves the same claim with a mock transport so CI needs no

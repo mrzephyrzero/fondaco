@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """PostgreSQL adapter implementing design/adapter-contract.md.
 
 Read-only defense in depth: the demo compose stack connects as a role

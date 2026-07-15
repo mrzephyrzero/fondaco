@@ -1,9 +1,11 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 [project]
 name = "fondaco"
 version = "0.0.1"
 description = "Data boundary for AI over enterprise data. Data stays home. Plans cross."
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

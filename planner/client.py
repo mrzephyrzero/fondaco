@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Blind planner client: annotated schema + question in, plan out.
 
 The request surface is structurally incapable of carrying row data — it

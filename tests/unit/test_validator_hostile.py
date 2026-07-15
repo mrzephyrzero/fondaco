@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Checkpoint P1: negative-case suite — every hostile input must be rejected.
 
 Each case mutates the known-good plan (or replaces it outright) and names

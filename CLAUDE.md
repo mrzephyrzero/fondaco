@@ -27,4 +27,4 @@ New phase → new session. Mid-phase resume → read `STATE.md` first. Never pas
 - Lint: `ruff check .` · Format: `ruff format` · Tests: `pytest` — CI runs lint + tests on every push.
 - Layout is fixed by `IMPLEMENTATION_PLAN.md` §2; do not add top-level directories.
 - All artifacts in English (public-facing repo).
-- License headers: placeholder comments until Phase 8 (license: Apache-2.0, see `DECISIONS.md`).
+- License: Apache-2.0. Every source file carries an SPDX header (`# SPDX-License-Identifier: Apache-2.0` + copyright line); see `LICENSE` and `NOTICE`.

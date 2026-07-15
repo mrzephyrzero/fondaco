@@ -151,9 +151,6 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   aggregates to isolate an individual.
 - **A malicious approver.** Approval is the trust anchor; someone who approves
   an exfiltrating plan is out of scope by design.
-- **Differencing across groupings.** The k-threshold suppresses small groups
-  within one result but not the combination of two different legal aggregates to
-  isolate an individual.
 - **Audit tail-truncation.** The hash chain detects any edit, deletion, or
   reordering *within* the log, but deleting entries from the end is not
   detectable from the file alone (needs external anchoring of the latest hash).

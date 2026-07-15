@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """API loop: ask → inspect → approve/reject, fully audited, fail closed.
 
 Checkpoint P4: a rejected plan is provably never executed — the fake

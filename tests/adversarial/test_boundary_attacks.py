@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Phase 7 adversarial suite — attacks on the boundary and their outcomes.
 
 Each test corresponds to an entry in design/threat-model.md. The headline is

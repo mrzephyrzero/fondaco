@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """CRIT-1 end-to-end against real Postgres: the comma-join exfil is denied.
 
 Proves three things: (1) the read-only role CAN read customers directly, so

@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Checkpoint P2: hand-written plans (no LLM) run end-to-end with labels."""
 
 from tests.integration.conftest import requires_db

@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Deterministic demo planner — pre-generated fixture plans, no LLM.
 
 Powers the keyless `docker compose up` demo. It is transparently a fixture:

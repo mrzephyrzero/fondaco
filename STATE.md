@@ -2,38 +2,41 @@
 
 _Single source of progress truth. Updated at the end of every work block (operating rule 2)._
 
-- **Current phase:** 7 — Adversarial phase: **COMPLETE**
-- **Last completed checkpoint:** **P7** (2026-07-14) — all items pass; CI green on GitHub Actions for commit `873cf23`
-- **Next action:** fresh session for **Phase 8 — Release readiness** (human-heavy). Context: `CLAUDE.md`, this file, `design/threat-model.md`, README, SECURITY.md; tasks: license decision executed (Apache-2.0 already chosen) + headers/NOTICE, finalize SECURITY.md, ROADMAP four-design narrative, blog #1 + Show HN drafts.
+- **Current phase:** 8 — Release readiness: **authoring COMPLETE; launch gate pending human sign-off** (see checkpoint below)
+- **Last completed checkpoint:** P7. **P8 authoring done**, CI to confirm; the two human-gated launch-gate items remain open by design.
+- **Project status:** V1 reference architecture **feature-complete**. All code phases (P0–P7) closed and green; P8 applies license + finalizes the public docs. What remains is human launch-gate action, not engineering.
 
-## Checkpoint P7 status
+## Checkpoint P8 status (launch gate)
 
 | Item | Status |
 |---|---|
-| ≥ 10 documented attack attempts in the threat model, each with outcome | ✅ `design/threat-model.md` logs **14** attacks (attack → vector → result → mitigation/accepted-risk) |
-| Zero known critical findings open (critical = row data crosses the boundary) | ✅ One critical found (**CRIT-1**, comma-join label bypass) and **fixed**; no other row-data-crossing path remains after the pass |
-| Threat model is publishable as-is — a feature, not an internal doc | ✅ Full doc: claim under test, assets/trust boundaries, attacker profiles, 14-row attack log, accepted residual risks, pass outcome. README section finalized and links to it |
+| Clean-machine test repeated by a human who is **not the author** | ⬜ **pending human** — author pre-flight passed (fresh GitHub clone → `docker compose up` → scripted walkthrough), but the "different human" requirement is the human's to perform and check off |
+| Threat model, README, SECURITY.md reviewed in one final pass | ✅ authoring pass done (consistent claim / residual risks / disclosure; README duplicate bullet fixed; threat-model status finalized) — ⬜ **final human sign-off pending** |
+| `STATE.md` archived; repo history clean | ✅ this file is the final state; `git status` clean, phase-prefixed history, no secrets/scratch tracked |
+| Enable GitHub **private vulnerability reporting** in repo settings | ⬜ **pending human** — SECURITY.md documents it as the sole channel; the maintainer must toggle it on (Settings → Code security) |
 
-Verification 2026-07-14: 153 tests green (unit + integration + adversarial; live-LLM/live-canary skip without a key), ruff clean.
+Verification 2026-07-14: 153 tests green (2 live-key tests skip without a key), ruff + format clean. LICENSE + NOTICE present; SPDX header on every source file; **no personal email anywhere in the repo** (`git grep` clean).
 
-## What Phase 7 found & did
+## What Phase 8 did
 
-- **CRIT-1 — comma-join label bypass (row data crossed).** `SELECT c.email FROM orders o, customers c …` hid the restricted `customers` table from `boundary/policy.py:_FROM_JOIN_RE` (it only captures the identifier right after FROM/JOIN), so the plan was labeled `internal` and allowed; the read-only role can read `customers`, so PII egressed. **Fixed** by failing closed on any implicit comma-join (`_COMMA_JOIN_RE` → `restricted`); explicit JOINs still resolve correctly, and the legitimate demo templates (select-list commas, `to_char` projections) are not over-restricted. The adapter shares `query_label`, so its defense-in-depth re-label inherited the fix.
-- **Regression tests:** `tests/adversarial/test_boundary_attacks.py` (unit — label + policy) and `tests/adversarial/test_comma_join_live.py` (real DB — proves the RO role *could* read `customers`, the plan is denied end-to-end, the adapter labels it `restricted`, and errors don't leak param values).
-- Everything else attacked held: DSL smuggling, template escapes, subquery/UNION label capture, aggregation-no-declassify, error sanitization, repair-loop-no-data, prompt injection bounded by the boundary, binary-search guards, audit tamper detection, guard-disable fail-closed.
+- **License applied:** Apache-2.0 SPDX header (`Copyright 2026 the Fondaco contributors`) on all 43 source/config files, replacing the placeholders; added `NOTICE`; `pyproject.toml` declares `license = "Apache-2.0"`; `CLAUDE.md` convention line updated.
+- **`SECURITY.md` finalized:** GitHub private vulnerability reporting as the **sole** disclosure channel (no personal/email address, per human decision); honest solo-maintainer no-SLA response expectation; reference-architecture scope; links the threat model.
+- **`ROADMAP.md`:** the four-design narrative (D2 abstraction mode, D3 labels-at-source, D4 attestable backends, ERP adapter) as direction-not-promises, plus parking lot (auth, audit head-anchoring).
+- **`LAUNCH_DRAFTS.md`:** blog #1 draft + Show HN draft (top-level file; no new directory), leading with the boundary and the honest threat model (CRIT-1 as credibility).
+- **Consistency pass:** fixed the duplicated README residual-risk bullet; threat-model status line finalized.
 
-## Notes for Phase 8
+## For the human — to close the launch gate
 
-- **No frozen interface changed** in Phase 7; `INTERFACE_CHANGE_REQUEST` remains empty. CRIT-1 was a code fix.
-- `design/threat-model.md` is publishable and is a launch asset (blog #1 highlight, Show HN credibility).
-- License is Apache-2.0 (chosen in P0, recorded in DECISIONS.md) — Phase 8 applies headers + NOTICE and swaps the placeholder license comments now atop every source file.
-- SECURITY.md is still a skeleton (disclosure contact + response expectation TODOs) — finalize in Phase 8.
-- README residual-risk section and the threat model must be reviewed together in the Phase 8 final pass.
+1. **Enable** private vulnerability reporting in GitHub repo settings (SECURITY.md relies on it).
+2. **Have a non-author** run the clean-machine test (fresh clone → `docker compose up` → walkthrough) and confirm ≤5 min.
+3. **Read** `design/threat-model.md`, `README.md`, `SECURITY.md` once more and sign off.
+4. **Fill** the `<link>` placeholders in `LAUNCH_DRAFTS.md` before publishing.
+Then the V1 launch gate is fully closed.
 
 ## Open questions (for the human)
 
-_None._
+_None (both prior questions resolved: Anthropic cloud funded + verified; Python 3.12 local parity done)._
 
 ## INTERFACE_CHANGE_REQUEST
 
-_None._
+_None across the entire build. The three frozen interfaces (plan-dsl, label-model, adapter-contract) shipped v0 unchanged; CRIT-1 in Phase 7 was a code fix, not an interface change._

@@ -1,4 +1,5 @@
-# License: placeholder — headers finalized in Phase 8 (see DECISIONS.md).
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
 """Checkpoint P3: live-LLM scenario run — ≥ 8/10 valid, policy-passing plans.
 
 Needs both a database (dataset) and a real LLM endpoint; skipped without
