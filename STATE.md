@@ -10,7 +10,7 @@ _Single source of progress truth. Updated at the end of every work block (operat
 
 | Item | Status |
 |---|---|
-| Clean-machine test repeated by a human who is **not the author** | ⬜ **pending human** — author pre-flight passed (fresh GitHub clone → `docker compose up` → scripted walkthrough), but the "different human" requirement is the human's to perform and check off |
+| Clean-machine test repeated by a human who is **not the author** | ⬜ **pending human** — author pre-flight passed on commit `563a1cf` (fresh GitHub clone with the P8 headers → `docker compose up` healthy in **41s** → walkthrough: Q1 executed/`internal`, Q10 denied/409, audit chain verified), but the "different human" requirement is the human's to perform and check off |
 | Threat model, README, SECURITY.md reviewed in one final pass | ✅ authoring pass done (consistent claim / residual risks / disclosure; README duplicate bullet fixed; threat-model status finalized) — ⬜ **final human sign-off pending** |
 | `STATE.md` archived; repo history clean | ✅ this file is the final state; `git status` clean, phase-prefixed history, no secrets/scratch tracked |
 | Enable GitHub **private vulnerability reporting** in repo settings | ⬜ **pending human** — SECURITY.md documents it as the sole channel; the maintainer must toggle it on (Settings → Code security) |
