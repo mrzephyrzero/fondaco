@@ -1,12 +1,12 @@
 # Fondaco — project conventions for Claude Code
 
-**Fondaco** is a data boundary for AI over enterprise data. Tagline: *"Data stays home. Plans cross."* V1 is a reference architecture with a working implementation, not a maintained product. Scope is frozen by `IMPLEMENTATION_PLAN.md`; anything else goes to `ROADMAP.md`, never into code.
+**Fondaco** is a data boundary for AI over enterprise data. Tagline: *"Data stays home. Plans cross."* V1 is a reference architecture with a working implementation, not a maintained product. **V1 scope is frozen**; anything outside it goes to `ROADMAP.md`, never into code.
 
 ## Session start (every session)
 
-Read ONLY: this file, `STATE.md`, and the design doc(s) listed for the current phase in `IMPLEMENTATION_PLAN.md`. Do not re-read the whole repo.
+Read ONLY: this file, `STATE.md`, and the design doc(s) relevant to the work at hand. Do not re-read the whole repo.
 
-## Operating rules (from IMPLEMENTATION_PLAN.md §0 — not optional)
+## Operating rules (not optional)
 
 1. **One phase = one or more fresh sessions.** Never carry a session across phases.
 2. **`STATE.md` is the single source of progress truth.** At the end of every work block: update it (current phase, last completed checkpoint, open questions, next action), commit, stop. A new session must be able to resume from `STATE.md` alone.
@@ -25,6 +25,41 @@ New phase → new session. Mid-phase resume → read `STATE.md` first. Never pas
 
 - Python 3.12, FastAPI, PostgreSQL, Docker Compose (`docker compose up` is the entire install story). Frontend: Jinja + htmx, no SPA, no build chain.
 - Lint: `ruff check .` · Format: `ruff format` · Tests: `pytest` — CI runs lint + tests on every push.
-- Layout is fixed by `IMPLEMENTATION_PLAN.md` §2; do not add top-level directories.
+- **The layout below is fixed. Do not add top-level directories.**
 - All artifacts in English (public-facing repo).
 - License: Apache-2.0. Every source file carries an SPDX header (`# SPDX-License-Identifier: Apache-2.0` + copyright line); see `LICENSE` and `NOTICE`.
+
+## Repository layout (fixed)
+
+```
+/design/                  # Interfaces — human-owned
+  plan-dsl.md             # Plan DSL specification v0 (FROZEN)
+  label-model.md          # Data classification & propagation model v1 (FROZEN)
+  adapter-contract.md     # Adapter interface v0 (FROZEN)
+  threat-model.md         # Adversarial pass: 14 attacks and their outcomes
+  prior-art.md            # Positioning against existing work
+/boundary/                # Security-critical core (small, reviewed)
+  validator.py            # Plan validation against DSL schema + structural rules
+  policy.py               # Label/egress policy engine
+  guards.py               # Cardinality threshold, per-session query budget
+  audit.py                # Append-only audit log
+/planner/
+  client.py               # LLM client (schema+question in, plan out)
+  demo.py                 # Deterministic fixture planner, no LLM
+  prompts/                # Versioned prompt templates
+/executor/
+  runner.py               # Executes validated plans, deterministic
+  adapters/
+    contract.py           # Types the adapter contract is written against
+    postgres.py           # First adapter
+/api/
+  main.py                 # FastAPI app: ask → plan → approve → execute
+  ui/                     # Approval + audit views (Jinja + htmx)
+/demo/
+  dataset/                # Synthetic warehouse-flavored dataset + loader
+  scenarios.md            # 10 scripted demo questions
+/tests/
+  unit/  integration/  adversarial/
+CLAUDE.md  STATE.md  DECISIONS.md  ROADMAP.md  SECURITY.md  README.md
+LAUNCH_DRAFTS.md  LICENSE  NOTICE
+```

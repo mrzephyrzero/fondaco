@@ -21,3 +21,6 @@ docker-compose.override.yml
 *.swp
 .DS_Store
 Thumbs.db
+
+# Internal planning artifact — kept locally, not published
+IMPLEMENTATION_PLAN.md

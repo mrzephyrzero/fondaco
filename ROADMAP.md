@@ -1,7 +1,7 @@
 # Roadmap
 
-**Direction, not promises.** V1 scope is frozen by `IMPLEMENTATION_PLAN.md`;
-everything here is explicitly *out* of V1 and may change or never ship. Fondaco
+**Direction, not promises.** V1 scope is frozen; everything here is explicitly
+*out* of V1 and may change or never ship. Fondaco
 V1 is a reference architecture — this page says where the idea goes next, so
 readers can judge the shape of the thing, not commit to a release plan.
 
