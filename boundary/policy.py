@@ -103,10 +103,13 @@ def _referenced_tables(template: str) -> list[str] | None:
 
 
 def query_label(template: str, schema_labels: dict) -> Label:
-    """Public labeling helper, shared with the executor (STATE.md Phase-2 note).
+    """Public labeling helper, shared with the executor.
 
     Sound over-approximation of label-model.md §4: max over every column of
     every FROM/JOIN table; unresolvable → restricted. Never lowers a label.
+
+    Note that the executor sharing this function means the label the adapter
+    attaches to a result is not an independent check — see label-model.md §5.
     """
     tables = _referenced_tables(template)
     if tables is None or not tables:

@@ -61,5 +61,13 @@ New phase → new session. Mid-phase resume → read `STATE.md` first. Never pas
 /tests/
   unit/  integration/  adversarial/
 CLAUDE.md  STATE.md  DECISIONS.md  ROADMAP.md  SECURITY.md  README.md
-LAUNCH_DRAFTS.md  LICENSE  NOTICE
+LICENSE  NOTICE
 ```
+
+**Published vs local.** Everything above is published. The artifacts that served
+the *construction* of the project rather than a reader of it stay on disk and are
+gitignored: `IMPLEMENTATION_PLAN.md` (the build plan, spent), `STATE.local.md`
+(the session journal), `LAUNCH_DRAFTS.md`. The published `STATE.md` is the
+`INTERFACE_CHANGE_REQUEST` register and a status statement — nothing else. When
+an operating rule below says to write something in `STATE.md`, that means the
+local journal, except for interface change requests, which are public.
