@@ -21,3 +21,11 @@ docker-compose.override.yml
 *.swp
 .DS_Store
 Thumbs.db
+
+# Build artifacts — kept locally, not published. These served the construction
+# of the project, not a reader of it. STATE.md is published, but only as the
+# INTERFACE_CHANGE_REQUEST register; the session journal lives in STATE.local.md.
+IMPLEMENTATION_PLAN.md
+LAUNCH_DRAFTS.md
+STATE.local.md
+docs/AUDIT_FOR_AUTHOR.md

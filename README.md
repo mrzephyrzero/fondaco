@@ -32,7 +32,8 @@ append-only, hash-chained audit log.
 touches data; the code that touches data is small, deterministic, and can't be
 prompted. Reads are enforced read-only at the database itself, not just in
 code. This is a **reference architecture with a working implementation**, not a
-maintained product — see `IMPLEMENTATION_PLAN.md` and `STATE.md`.
+maintained product: V1 is complete and the threat model is closed, but there are
+no releases, no backports, and no support commitment.
 
 ---
 
