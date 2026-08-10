@@ -18,8 +18,9 @@ append-only, hash-chained audit log.
             │  Validator   plan matches the DSL, SELECT-only, params   │
             │  Policy      max-label ≤ endpoint clearance, else deny   │
             │  Approval    a human approves; deny is never overridable │
+            │  Budget      per-session query budget, charged up front  │
             │  Executor    runs the plan on a read-only DB role        │
-            │  Guards      k-threshold + per-session query budget      │
+            │   └ k-threshold  small aggregate groups dropped, in-run  │
             │  Audit       append-only, hash-chained, nothing skipped  │
             └─────────────────────────────────────────────────────────┘
                   │  labeled result
@@ -67,8 +68,12 @@ On the home page, click one of the scripted questions (or type it) and press
    `internal` clearance. There is no approve button — *approval cannot override
    a policy deny.* This is the boundary doing its job.
 4. Open **Audit log** (top nav). Every request has a complete, hash-chained
-   trail: question → plan → validation → policy decision → approval → execution
-   digest, with a "✓ hash chain verified" banner. Filter by event or plan id.
+   trail: question → plan id → validation → policy decision → approval →
+   execution digest, with a "✓ hash chain verified" banner. Filter by event or
+   plan id. Note what the trail does *not* carry: the plan's steps and SQL are
+   never written to the log, only its `plan_id`. Plan content lives in memory
+   for the life of the process, so after a restart the audit shows that a plan
+   ran and what was decided about it, not what it executed.
 
 That is the whole product: **ask → inspect the plan → approve → labeled result**,
 with nothing crossing the boundary unlogged.
@@ -131,7 +136,8 @@ a guard cannot be disabled.
 ## What this does NOT protect against
 
 Fondaco is a reference architecture; this list is deliberately honest. The full
-attack log — 14 documented attacks, each with its outcome — is in
+attack log — 14 documented attacks, each with its outcome, including the ones
+it does not stop — is in
 [`design/threat-model.md`](design/threat-model.md). That pass found and fixed
 one critical (a comma-join that hid a restricted table from the label scanner,
 letting PII cross); it is closed and has a regression test. The threat model
@@ -151,9 +157,32 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   aggregates to isolate an individual.
 - **A malicious approver.** Approval is the trust anchor; someone who approves
   an exfiltrating plan is out of scope by design.
-- **Audit tail-truncation.** The hash chain detects any edit, deletion, or
-  reordering *within* the log, but deleting entries from the end is not
-  detectable from the file alone (needs external anchoring of the latest hash).
+- **The two label checks are not independent.** The static pre-execution check
+  and the label the adapter recomputes both call the same `query_label`. A flaw
+  in that one function defeats both at once — which is exactly how the
+  comma-join critical got through. Two checks, one point of failure.
+- **Views are denied by ignorance, not resolved.** A view is never in the
+  schema labels (only ordinary tables are read), so a query against one is
+  denied because the *name* is unknown — not because anything traced the view
+  to its base tables. Every view is unusable, including views over public data.
+  If views were ever added to the schema labels to fix that, the label on the
+  view would be believed: a view labeled `internal` over a `restricted` table
+  would leak. The protection does not weaken, it inverts.
+- **The hash chain is unkeyed.** Plain SHA-256, algorithm in this repository.
+  It detects edits, deletions, and reordering *within* the log. It does not
+  detect tail-truncation, deletion of the whole file, or a wholesale rewrite
+  with recomputed hashes — that forgery verifies clean. Tamper-evident against
+  partial edits, not tamper-proof against write access plus knowledge of the
+  algorithm.
+- **The audit does not contain plan content.** Only `plan_id`, `prompt_version`
+  and `attempts` are logged. The steps and SQL live in process memory, so after
+  a restart you cannot reconstruct what was executed — only that it was.
+- **k=5 suppresses legitimate small groups.** The threshold is on input
+  cardinality and cannot tell an exfiltration probe from a real answer: both are
+  1-row groups. On operational data, where a 1–3 row group is the signal rather
+  than the risk, the numbers you asked for are exactly the ones dropped. The
+  only lever is `FONDACO_GUARD_K=1`, which disables the binary-search defence.
+  There is no per-query way to keep the guard and answer the question.
 - **Side channels** (timing, query duration) beyond error text, which is already
   sanitized to exception class + SQLSTATE.
 

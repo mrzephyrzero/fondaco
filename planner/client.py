@@ -5,8 +5,12 @@
 The request surface is structurally incapable of carrying row data — it
 serializes only `AnnotatedSchema` (labels, types, statistics, comments;
 never rows, by contract §2.1) plus the user question, and on repair
-rounds only machine-readable validation/policy errors. The transport is
+rounds only machine-readable *validation* errors. The transport is
 injectable so tests can capture every outbound byte (canary test).
+
+Repair rounds carry validation errors only. Policy is evaluated after
+this client returns, in the API, and a policy deny is never fed back
+here for repair — a denied plan is denied, not re-planned.
 
 Base URL is configurable: any OpenAI-compatible /chat/completions
 endpoint (cloud API, LiteLLM/Bifrost gateway, or local Ollama) works

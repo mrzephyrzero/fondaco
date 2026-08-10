@@ -1,8 +1,13 @@
 # Data Classification & Propagation Model
 
-**Version:** v0 — **FROZEN**
-**Status:** Frozen as-is by the human architect on 2026-07-13 (sign-off in `DECISIONS.md`). Binding for all implementation.
+**Version:** v1 — **FROZEN**
+**Supersedes:** v0 (frozen by the human architect on 2026-07-13, sign-off in `DECISIONS.md`). Binding for all implementation.
 **Change procedure (post-freeze):** No in-place edits. Problems are filed in `STATE.md` under `INTERFACE_CHANGE_REQUEST`; only the human approves; approved changes ship as a new version of this document.
+
+**Changelog**
+
+- **v1** — §5 corrected. v0 stated that the egress rule was re-checked after execution against the actual `LabeledResult`, as defense in depth. No such re-check was ever implemented. Compounding it, the label the adapter recomputes is derived from the same `query_label` function as the static check, so the two layers could not have disagreed and would not have been independent had the re-check existed. Both facts are now stated in §5. Nothing else changed: the egress rule itself (`result label ≤ endpoint clearance`), the level order, and the propagation rules are identical to v0. Correction identified by the author's technical audit and approved by the human architect.
+- **v0** — initial frozen version, 2026-07-13.
 
 ## 1. Purpose
 
@@ -50,7 +55,7 @@ Every egress endpoint (v0 has exactly one: the approval-gated results view) has 
 allow egress  ⇔  result label ≤ endpoint clearance
 ```
 
-- Evaluated by `boundary/policy.py` *before* execution (static, from schema labels) and re-checked *after* execution against the actual `LabeledResult` (defense in depth).
+- Evaluated by `boundary/policy.py` *before* execution (static, from schema labels). **There is no post-execution re-check.** v0 of this document promised one against the actual `LabeledResult` as defense in depth; it was never implemented — approval runs the plan and then renders and audits the result without a second `evaluate(...)`. The adapter does recompute a label for the result, but it derives that label from the same `query_label` function as the static check, so the two cannot disagree: this is not an independent second layer, and a flaw in `query_label` defeats both at once (which is precisely how CRIT-1 crossed both).
 - Deny is the default: missing clearance config, unknown label, or any evaluation error → deny with a machine-readable reason, logged to the audit trail.
 - Human approval is necessary but not sufficient: an approver cannot override a policy deny in v0.
 

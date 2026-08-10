@@ -41,7 +41,7 @@ These rules exist to prevent context degradation and scope drift. They are not o
 ```
 /design/                  # Frozen interfaces — human-owned
   plan-dsl.md             # Plan DSL specification v0
-  label-model.md          # Data classification & propagation model v0
+  label-model.md          # Data classification & propagation model v1
   adapter-contract.md     # Adapter interface v0
   threat-model.md         # Written in Phase 7, skeleton from Phase 0
 /boundary/                # Security-critical core (small, reviewed)
@@ -101,7 +101,7 @@ Context to load: `plan-dsl.md`, `label-model.md`.
 Tasks:
 - `boundary/validator.py`: JSON-schema validation of plans + structural rules (only whitelisted step types, only SELECT templates, parametrized params, no string interpolation anywhere).
 - `boundary/policy.py`: evaluate a validated plan against schema labels → allow / deny with machine-readable reason.
-- `boundary/audit.py`: append-only log (JSONL + hash chain of entries) recording: question, generated plan, validation result, policy decision, approval identity, execution digest. Nothing that crosses the boundary is unlogged.
+- `boundary/audit.py`: append-only log (JSONL + hash chain of entries) recording: question, plan **identity** (`plan_id`/`prompt_version`/`attempts` — not the plan's steps or SQL), validation result, policy decision, approval identity, execution digest. Nothing that crosses the boundary is unlogged. **As built, plan *content* is not written to the audit**: it lives only in the in-memory `PlanRecord` and is lost on restart, so the durable log shows *that* a plan (by id) ran, not *what* it was.
 - Unit tests including *negative* cases: malformed plans, injection attempts in params, unknown step types, label escalation attempts.
 
 **Checkpoint P1:**
