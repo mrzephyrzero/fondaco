@@ -86,7 +86,10 @@ def test_comma_join_exfil_is_denied_end_to_end(adapter, tmp_path):
 
 
 def test_adapter_labels_comma_join_restricted(adapter):
-    # Defense in depth: the executor-side re-label agrees the result is restricted.
+    # The executor-side re-label also reports restricted. Note this is NOT an
+    # independent second check: the adapter derives that label from the same
+    # query_label used by the static policy check, so the two cannot disagree.
+    # It confirms the label reaches the result, not that a second layer agrees.
     # (Bounded to one row so the adapter returns a labeled result rather than
     # tripping max_rows — the labeling is what we are asserting here.)
     step = {
