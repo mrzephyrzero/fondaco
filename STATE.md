@@ -27,6 +27,19 @@ document it affects, never as a silent in-place edit.
 **None during the build.** All three interfaces shipped v0 unchanged. CRIT-1 was
 a code fix, not an interface change.
 
+### `design/plan-dsl.md` v0 → v1 — approved and shipped
+
+- **Flaw:** §2 required step ids only to be unique and to match `^s[0-9]+$`,
+  admitting a non-contiguous set such as `s1, s3, s5`. §4 of the same document
+  said "unique **sequential** step ids", and `boundary/validator.py` has always
+  enforced exactly `s1 … sN` in order. The document contradicted itself, and the
+  implementation followed §4.
+- **Found by:** a technical audit of the finished repo.
+- **Resolution:** §2 restated to match §4 and the code. This narrows what v0
+  nominally permitted, so no previously accepted plan becomes invalid, and no
+  behaviour changed. Shipped as **v1** with a changelog, per the document's own
+  change procedure.
+
 ### `design/label-model.md` v0 → v1 — approved and shipped
 
 - **Flaw:** §5 stated the egress rule was re-checked after execution against the

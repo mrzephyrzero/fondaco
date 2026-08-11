@@ -26,6 +26,52 @@ def test_schema_labels_and_fallback(adapter):
     assert tables["orders"].row_count > 0  # coarse statistic, never row data
 
 
+@requires_db
+def test_column_label_raises_its_table_against_real_schema(adapter):
+    # employees is annotated 'internal' but carries a 'restricted' salary column.
+    # The whole table therefore labels restricted, even for a template that never
+    # mentions salary — the over-approximation of label-model.md §4, read off a
+    # real Postgres schema rather than a hand-built fixture.
+    from boundary.policy import Label, query_label
+    from executor.adapters.contract import schema_labels_dict
+
+    schema = adapter.get_schema()
+    tables = {t.name: t for t in schema.tables}
+    assert tables["employees"].label == "internal"
+    columns = {c.name: c for c in tables["employees"].columns}
+    assert columns["salary"].label == "restricted"
+    assert columns["department"].label == "internal"
+
+    labels = schema_labels_dict(schema)
+    assert query_label("SELECT department FROM employees", labels) == Label.RESTRICTED
+
+
+@requires_db
+def test_relabeling_at_the_source_takes_effect_without_restart(adapter):
+    # label-model.md §4 makes relabeling at the source the only way to change
+    # classification. That only holds if the adapter re-reads the labels: it
+    # used to cache them for the life of the process, so a column raised to
+    # restricted kept crossing at its old label until someone restarted the app.
+    # Labels are now read on the same connection as the query itself.
+    import psycopg
+
+    from tests.integration.conftest import ADMIN_DSN
+
+    before = adapter.execute(_step("SELECT category FROM products"))
+    assert before.label == "public"
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        conn.execute("COMMENT ON COLUMN products.category IS 'label:restricted temporarily'")
+    try:
+        after = adapter.execute(_step("SELECT category FROM products"))
+        assert after.label == "restricted", "the adapter is serving stale labels"
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+            conn.execute("COMMENT ON COLUMN products.category IS 'label:public'")
+
+    assert adapter.execute(_step("SELECT category FROM products")).label == "public"
+
+
 def test_execute_binds_params_and_labels(adapter):
     result = adapter.execute(
         _step(

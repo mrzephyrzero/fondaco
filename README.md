@@ -127,12 +127,16 @@ the channel:
 
 - **k-threshold** (`FONDACO_GUARD_K`, default 5): any aggregate group computed
   from fewer than k input rows is dropped entirely (not masked). This removes
-  the one-row `count` that a binary search depends on.
+  the one-row `count` that a binary search depends on. It does *not* touch
+  `min`/`max`, which return one row's exact value at any group size — what
+  bounds those is the label, not this guard.
 - **Per-session query budget** (`FONDACO_QUERY_BUDGET`, default 20): a hard stop
   on executed query steps; over budget, the plan is refused, unrun, recorded.
 
-Both fail closed: a config value below 1 or unparsable reverts to the default —
-a guard cannot be disabled.
+Unparsable config, or a value below 1, reverts to the default rather than to no
+protection. That is the limit of the claim: `FONDACO_GUARD_K=1` is accepted and
+suppresses nothing, so the k-threshold *can* be turned off deliberately — it
+cannot be turned off by accident or by a malformed value.
 
 ## What this does NOT protect against
 
@@ -149,10 +153,12 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   patient attacker within budget, or across sessions, can still learn
   distributional facts. Fondaco protects against *row data crossing the
   boundary*, not against all inference over aggregates.
-- **No authentication in V1.** The approver identity is self-declared and the
-  query budget is keyed on a session cookie, so clearing cookies grants a fresh
-  budget. The mitigation is the append-only audit trail, not prevention.
-  Per-user identity/authz is a deployment concern (roadmap).
+- **No authentication in V1.** The approver identity is self-declared, and the
+  query budget is keyed on a session cookie the client chooses to send. A
+  browser that clears cookies gets a fresh budget; a client that never sends one
+  gets a fresh budget on *every request*, so against non-browser callers the
+  budget is not a limit at all. The mitigation is the append-only audit trail,
+  not prevention. Per-user identity/authz is a deployment concern (roadmap).
 - **Differencing across groupings.** The k-threshold suppresses small groups
   within one result but does not defend against combining two different legal
   aggregates to isolate an individual.
@@ -168,7 +174,14 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   to its base tables. Every view is unusable, including views over public data.
   If views were ever added to the schema labels to fix that, the label on the
   view would be believed: a view labeled `internal` over a `restricted` table
-  would leak. The protection does not weaken, it inverts.
+  would leak. The protection does not weaken, it inverts. The same blindness
+  covers everything that is not an ordinary table: **partitioned tables**,
+  materialized views and foreign tables are all invisible to the schema reader
+  and therefore unusable — which rules out the normal shape of a large table.
+- **`min` and `max` disclose one row exactly.** They return a real cell value by
+  construction, whatever the group size, so the k-threshold never applies to
+  them. Only the label bounds that disclosure: the value crosses if its label is
+  within clearance. Aggregation is not anonymization here.
 - **The hash chain is unkeyed.** Plain SHA-256, algorithm in this repository.
   It detects edits, deletions, and reordering *within* the log. It does not
   detect tail-truncation, deletion of the whole file, or a wholesale rewrite
@@ -184,6 +197,9 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   than the risk, the numbers you asked for are exactly the ones dropped. The
   only lever is `FONDACO_GUARD_K=1`, which disables the binary-search defence.
   There is no per-query way to keep the guard and answer the question.
+- **Row counts shown to the planner are estimates.** They come from Postgres
+  `reltuples`, refreshed by `ANALYZE`/autovacuum, and the model is given no hint
+  that the number is approximate. A plan can be built on a stale count.
 - **Side channels** (timing, query duration) beyond error text, which is already
   sanitized to exception class + SQLSTATE.
 

@@ -91,6 +91,15 @@ is given).
 - **Differencing across groupings.** The k-threshold suppresses small groups
   within one result; it does not defend against combining two different legal
   aggregates to isolate an individual.
+- **`min`/`max` are exact single-row disclosures.** The k-threshold tests group
+  *cardinality*, so it never applies to them: `max(amount)` over a group of
+  thousands still emits one real row's value. What bounds the disclosure is the
+  label, not the guard — aggregation is not anonymization in v0.
+- **Only ordinary tables are visible.** `get_schema` reads `relkind = 'r'`, so
+  views, materialized views, foreign tables and **partitioned tables** are never
+  in the schema labels and every query against them is denied by ignorance. For
+  views this is the inversion risk noted in the README; for partitioned tables
+  it means the usual shape of a large table cannot be queried at all.
 - **Trust in schema annotations.** Whoever writes the `label:` comments defines
   classification. A hostile annotator can mislabel data downward; this is the
   labeling mechanism, equivalent to trusting the data owner, not a defect.

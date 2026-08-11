@@ -67,6 +67,51 @@ def test_unknown_label_string_escalates_not_lowers():
     assert decision.allow is False
 
 
+# ── A column may raise its table's label; it may never lower it ────────────
+#
+# `_table_label` takes the max over the table label *and every column of that
+# table*, so a single high column pulls the whole table up. Until these tests
+# existed no fixture in the repo had a column labeled above its table, which
+# left the raising branch unexecuted — in the function that decides every label.
+#
+# This is also where label-model.md §4 ("max over every column read by the
+# template") and the implementation visibly part company: the scan does not
+# work out which columns a template reads, so the label is computed over *all*
+# columns of every referenced table. That over-approximates — it can only raise
+# a label, never lower one — and the second test below pins that behaviour.
+
+_MIXED = {
+    "employees": {
+        "label": "internal",
+        "columns": {"name": "internal", "department": "internal", "salary": "restricted"},
+    }
+}
+
+
+def test_column_label_raises_the_table_label():
+    decision = evaluate(_plan("SELECT salary FROM employees"), _MIXED, "internal")
+    assert decision.allow is False
+    assert decision.plan_label == "restricted"
+
+
+def test_unread_high_column_still_raises_the_label():
+    # `salary` is not in the select list. The label is restricted anyway: this is
+    # the documented over-approximation, not a bug. It over-restricts, which is
+    # the safe direction — but it does mean a table is only as usable as its
+    # most sensitive column.
+    decision = evaluate(_plan("SELECT department FROM employees"), _MIXED, "internal")
+    assert decision.allow is False
+    assert decision.plan_label == "restricted"
+
+
+def test_column_label_below_the_table_label_changes_nothing():
+    # The mirror case: a low column cannot pull a restricted table down.
+    schema = {"salaries": {"label": "restricted", "columns": {"id": "public"}}}
+    decision = evaluate(_plan("SELECT id FROM salaries"), schema, "confidential")
+    assert decision.allow is False
+    assert decision.plan_label == "restricted"
+
+
 def test_aggregation_does_not_declassify():
     decision = evaluate(
         _plan("SELECT amount FROM salaries", with_aggregate=True), SCHEMA, "confidential"

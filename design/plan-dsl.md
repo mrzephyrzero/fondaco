@@ -1,8 +1,13 @@
 # Plan DSL Specification
 
-**Version:** v0 — **FROZEN**
-**Status:** Frozen as-is by the human architect on 2026-07-13 (sign-off in `DECISIONS.md`). Binding for all implementation.
+**Version:** v1 — **FROZEN**
+**Supersedes:** v0 (frozen by the human architect on 2026-07-13, sign-off in `DECISIONS.md`). Binding for all implementation.
 **Change procedure (post-freeze):** No in-place edits. Implementation problems are filed in `STATE.md` under `INTERFACE_CHANGE_REQUEST` with the problem and a proposed change; only the human approves, and any approved change ships as a new version (v1, v2, …) of this document.
+
+**Changelog**
+
+- **v1** — §2 corrected. v0 required step ids only to be unique and to match `^s[0-9]+$`, which would admit a non-contiguous set such as `s1, s3, s5`, while §4 of the same document already said "unique **sequential** step ids" and the validator has always enforced exactly `s1 … sN` in order. §2 now states the rule the rest of the document and the implementation were both using. This narrows what v0 nominally permitted, so no plan that was ever accepted becomes invalid. Nothing else changed: step types, template rules, parameter rules and non-goals are identical to v0.
+- **v0** — initial frozen version, 2026-07-13.
 
 ## 1. Purpose
 
@@ -20,7 +25,7 @@ A *plan* is the only artifact the LLM planner may produce and the only input the
 ```
 
 - `steps` is an ordered, non-empty list. Max 10 steps per plan.
-- Each step has a unique `id` (string, `^s[0-9]+$`) and may reference only *earlier* step ids (no cycles by construction).
+- Step ids are `s1 … sN`: contiguous, in order, one per step, matching `^s[0-9]+$`. A gap or a reordering (`s1, s3`) is a validation failure. Steps may reference only *earlier* ids, so cycles are impossible by construction.
 - The final step MUST be of type `present`; `present` may appear only once, as the last step.
 - Unknown fields anywhere in the plan → validation failure (fail closed).
 
