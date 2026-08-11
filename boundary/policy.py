@@ -80,12 +80,15 @@ def _parse_or_restricted(raw: object) -> Label:
 
 
 def _table_label(table: dict) -> Label:
-    """Max over the table label and all its column labels (over-approximation)."""
-    base = _parse_or_restricted(table.get("label"))
-    label = base
+    """Max over the table label and all its column labels (over-approximation).
+
+    A column may raise the table's label; it can never lower it, because the
+    running max starts at the table's own label.
+    """
+    label = _parse_or_restricted(table.get("label"))
     columns = table.get("columns") or {}
     for column_label in columns.values():
-        label = max(label, max(_parse_or_restricted(column_label), base))
+        label = max(label, _parse_or_restricted(column_label))
     return label
 
 

@@ -28,4 +28,8 @@ Thumbs.db
 IMPLEMENTATION_PLAN.md
 LAUNCH_DRAFTS.md
 STATE.local.md
-docs/AUDIT_FOR_AUTHOR.md
+
+# Audits and study notes written for the author, not for a reader of the repo.
+# The whole directory, so a new audit is private by default rather than by
+# someone remembering to add its filename here.
+docs/

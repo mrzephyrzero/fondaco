@@ -9,9 +9,16 @@ demo (no LLM) while every plan still crosses the real boundary. Editing a
 question here means updating its fixture there (the integration test
 `tests/integration/test_demo_scenarios.py` enforces they stay in sync).
 
-Questions are phrased to be answerable with the v0 DSL over the demo
+Questions are phrased to be answerable with the Plan DSL over the demo
 dataset while keeping raw query results under the adapter's 10 000-row cap
-(filter or project narrowly, aggregate in plan steps).
+(filter or project narrowly, aggregate in plan steps). The dataset runs
+2023-01-01 → 2026-12-31, so a question about "2026" is answered with a full
+year; the widest filter below returns about 6 400 rows of the 10 000 allowed.
+
+The dataset also carries an `employees` table that no scripted question uses:
+it is `internal` with a `restricted` salary column, so every query against it
+is denied at `internal` clearance — the column-level rule of the label model,
+available to try with a real planner.
 
 | # | Question | Expected outcome |
 |---|---|---|

@@ -84,7 +84,6 @@ class PostgresAdapter:
         self._dsn = dsn
         self._max_rows = max_rows
         self._timeout_ms = statement_timeout_s * 1000
-        self._schema_labels: dict | None = None  # lazy cache; labels change only with the schema
 
     def _connect(self) -> psycopg.Connection:
         try:
@@ -101,12 +100,21 @@ class PostgresAdapter:
     def get_schema(self) -> AnnotatedSchema:
         try:
             with self._connect() as conn, conn.cursor() as cur:
-                cur.execute(_SCHEMA_SQL)
-                rows = cur.fetchall()
+                return self._read_schema(cur)
         except AdapterError:
             raise
         except psycopg.Error as exc:
             raise AdapterError("schema", _sanitize(exc)) from exc
+
+    def _read_schema(self, cur: psycopg.Cursor) -> AnnotatedSchema:
+        """Build the annotated schema on an open cursor.
+
+        Taking a cursor rather than opening its own connection lets `execute`
+        read the labels and the rows inside the *same* transaction, so a result
+        can never be tagged with labels from a different snapshot of the schema.
+        """
+        cur.execute(_SCHEMA_SQL)
+        rows = cur.fetchall()
 
         tables: dict[str, dict] = {}
         for table_name, table_comment, row_count, column_name, sql_type, column_comment in rows:
@@ -140,12 +148,15 @@ class PostgresAdapter:
         except (KeyError, TypeError, ValueError) as exc:
             raise AdapterError("execution", f"invalid params: {type(exc).__name__}") from exc
 
-        if self._schema_labels is None:
-            self._schema_labels = schema_labels_dict(self.get_schema())
-        label = query_label(step["template"], self._schema_labels).name.lower()
-
         try:
             with self._connect() as conn, conn.cursor() as cur:
+                # Labels first, on the same connection and transaction as the
+                # query below. Previously these were cached for the life of the
+                # process, so relabeling a column at the source had no effect
+                # until restart — and the label attached here could disagree
+                # with the one the policy engine evaluated from a fresh read.
+                labels = schema_labels_dict(self._read_schema(cur))
+                label = query_label(step["template"], labels).name.lower()
                 cur.execute(step["template"], params)
                 if cur.description is None:
                     raise AdapterError("execution", "statement returned no result set")

@@ -33,7 +33,7 @@ New phase → new session. Mid-phase resume → read `STATE.md` first. Never pas
 
 ```
 /design/                  # Interfaces — human-owned
-  plan-dsl.md             # Plan DSL specification v0 (FROZEN)
+  plan-dsl.md             # Plan DSL specification v1 (FROZEN)
   label-model.md          # Data classification & propagation model v1 (FROZEN)
   adapter-contract.md     # Adapter interface v0 (FROZEN)
   threat-model.md         # Adversarial pass: 14 attacks and their outcomes
