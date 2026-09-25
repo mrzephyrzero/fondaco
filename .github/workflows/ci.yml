@@ -39,5 +39,5 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-      - name: Test
-        run: pytest -q
+      - name: Test (with branch coverage of the security core)
+        run: pytest -q --cov=boundary --cov=executor --cov-branch --cov-report=term-missing
