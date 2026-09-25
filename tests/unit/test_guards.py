@@ -108,9 +108,32 @@ def test_config_from_env_defaults(monkeypatch):
     assert config == GuardConfig(k=DEFAULT_K, query_budget=DEFAULT_QUERY_BUDGET)
 
 
-def test_config_from_env_cannot_disable_guards(monkeypatch):
-    monkeypatch.setenv("FONDACO_GUARD_K", "0")
-    monkeypatch.setenv("FONDACO_QUERY_BUDGET", "-5")
+@pytest.mark.parametrize(
+    ("raw_k", "raw_budget", "expected_k", "expected_budget"),
+    [
+        # Below 1, or unparsable: fall back to the default, never to "no guard".
+        ("0", "-5", DEFAULT_K, DEFAULT_QUERY_BUDGET),
+        ("-3", "0", DEFAULT_K, DEFAULT_QUERY_BUDGET),
+        ("garbage", "1.5", DEFAULT_K, DEFAULT_QUERY_BUDGET),
+        # 1 and above: honored exactly as given — including k=1, see below.
+        ("1", "1", 1, 1),
+        ("12", "40", 12, 40),
+    ],
+)
+def test_config_from_env_rejects_sub_one_and_honors_the_rest(
+    monkeypatch, raw_k, raw_budget, expected_k, expected_budget
+):
+    monkeypatch.setenv("FONDACO_GUARD_K", raw_k)
+    monkeypatch.setenv("FONDACO_QUERY_BUDGET", raw_budget)
     config = config_from_env()
-    assert config.k == DEFAULT_K
-    assert config.query_budget == DEFAULT_QUERY_BUDGET
+    assert config == GuardConfig(k=expected_k, query_budget=expected_budget)
+
+
+def test_k_of_one_is_accepted_and_suppresses_nothing():
+    # The documented limit of the fail-closed claim (README, threat model row 14,
+    # .env.example): a malformed value cannot switch the k-threshold off, but
+    # FONDACO_GUARD_K=1 can, deliberately — every group has at least one row.
+    rows = (("a", 1), ("b", 1), ("c", 1))
+    result = suppress_small_groups(rows, (1, 1, 1), k=1)
+    assert result.rows == rows
+    assert result.suppressed == 0
