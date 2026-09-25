@@ -241,3 +241,55 @@ def test_audit_view_shows_chain_and_filters(tmp_path):
     filtered = client.get("/audit", params={"event": "approval"})
     assert "<code>approval</code>" in filtered.text
     assert "<code>question_received</code>" not in filtered.text
+
+
+# ── Execution failure: the plan fails closed and the failure is audited ────
+
+
+class FailingAdapter(CountingAdapter):
+    """Passes every gate, then fails at execution like a database would."""
+
+    def execute(self, step):
+        from executor.adapters.contract import AdapterError
+
+        self.execute_calls += 1
+        raise AdapterError("timeout", "QueryCanceled (sqlstate=57014)")
+
+
+def test_execution_failure_marks_plan_failed_and_is_audited(tmp_path):
+    failing = FailingAdapter()
+    audit_path = tmp_path / "audit.jsonl"
+    planner = PlannerClient(
+        base_url="https://llm.invalid/v1",
+        model="mock",
+        max_attempts=2,
+        transport=SequencedLLM(_good_steps()).transport(),
+    )
+    app = create_app(
+        adapter=failing, planner=planner, audit_path=str(audit_path), clearance="internal"
+    )
+    client = TestClient(app)
+    plan_id = _ask(client)
+
+    done = client.post(f"/plans/{plan_id}/approve", data={"approver": "alice"})
+    assert done.status_code == 200  # redirected back to the plan page
+    assert failing.execute_calls == 1
+    assert 'class="badge st-failed"' in done.text
+    assert "Execution failed: adapter_error: timeout: QueryCanceled (sqlstate=57014)" in done.text
+
+    entries = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    digests = [e for e in entries if e["event"] == "execution_digest"]
+    assert len(digests) == 1
+    assert digests[0]["payload"] == {
+        "plan_id": plan_id,
+        "success": False,
+        "error_code": "adapter_error",
+    }
+    # No result was produced, so no k-threshold decision is recorded for it.
+    assert not any(
+        e["event"] == "guard_decision" and e["payload"].get("guard") == "k_threshold"
+        for e in entries
+    )
+    from boundary.audit import AuditLog
+
+    assert AuditLog(audit_path).verify().ok is True
