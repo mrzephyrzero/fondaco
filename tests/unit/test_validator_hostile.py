@@ -213,3 +213,29 @@ def test_validator_never_raises_on_garbage():
     for garbage in (None, 42, "plan", b"bytes", {"steps": object()}):
         result = validate_plan(garbage)
         assert result.valid is False
+
+
+# ── Internal faults invalidate the plan (validator.py outer except) ────────
+#
+# The JSON Schema gate is strict enough that no ordinary input reaches the
+# structural pass in a state that can fault it, so the catch-all is exercised
+# by injecting the fault. What it must guarantee is twofold: a fault is an
+# invalid plan, never a pass and never an exception — and the error carries
+# the exception's type only. That second part matters more here than
+# anywhere: validation errors are what the repair loop sends back to the LLM,
+# so an exception message would leave the perimeter.
+
+
+def test_internal_fault_invalidates_the_plan(monkeypatch):
+    import boundary.validator as validator
+
+    def explode(plan):
+        raise RuntimeError("customer 4111-1111-1111-1111")
+
+    monkeypatch.setattr(validator, "_structural_errors", explode)
+    result = validator.validate_plan(VALID_PLAN)
+    assert result.valid is False
+    assert len(result.errors) == 1
+    assert result.errors[0].code == "validator_error"
+    assert result.errors[0].detail == "internal validation fault: RuntimeError"
+    assert "4111" not in result.errors[0].detail

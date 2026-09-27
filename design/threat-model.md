@@ -61,7 +61,7 @@ is given).
 | 12 | Aggregate binary-search exfiltration | sequence of 1-row `count` probes to recover a value | Each probe suppressed by the k-threshold; the run halts at the query budget; the pattern is audited | `boundary/guards.py`; `tests/adversarial/test_binary_search_attack.py` |
 | 13 | Audit tampering (partial) | edit / delete / reorder / truncate-middle log entries | Detected — hash chain breaks; a tampered log refuses further appends | `boundary/audit.py`; `tests/unit/test_audit.py` |
 | 13b | Audit tampering (wholesale) | rewrite the entire file with recomputed hashes | **Not detected** — the chain is unkeyed SHA-256, so a consistent forgery verifies clean and accepts further appends. Tamper-evident against partial edits, not tamper-proof | `boundary/audit.py`; `tests/adversarial/test_audit_forgery.py` |
-| 14 | Guard disable via hostile config | `FONDACO_GUARD_K=0`, negative budget, garbage | Fails closed to defaults — a guard cannot be turned off | `config_from_env`; `tests/unit/test_guards.py` |
+| 14 | Guard disable via hostile config | `FONDACO_GUARD_K=0`, negative budget, garbage | Falls back to defaults — a guard cannot be disabled by accident or by a malformed value. `FONDACO_GUARD_K=1` is accepted and keeps every group, so the k-threshold can still be turned off deliberately | `config_from_env`; `tests/unit/test_guards.py` |
 
 ## 5. Residual risks (accepted, documented)
 

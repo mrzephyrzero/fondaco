@@ -48,6 +48,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | `httpx` promoted dev → runtime | Planner LLM client; raw HTTP to any OpenAI-compatible endpoint keeps the outbound surface auditable — no vendor SDK |
 | 2026-07-14 | `jinja2` | Frozen stack choice (plan §1): server-rendered approval/audit UI |
 | 2026-07-14 | `python-multipart` | FastAPI form parsing for the approval flow (ask/approve/reject forms) |
+| 2026-09-25 | `pytest-cov` (dev) | Branch coverage in CI. The fail-closed paths rule 5 requires were correct by inspection but executed by no test, and nothing could show it without an audit; a printed report makes a regression in those paths visible on every push |
 
 ## Sign-offs
 

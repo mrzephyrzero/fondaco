@@ -11,6 +11,7 @@ from boundary.audit import (
     EVENT_QUESTION_RECEIVED,
     AuditError,
     AuditLog,
+    _entry_hash,
 )
 
 
@@ -116,3 +117,65 @@ def test_unserializable_payload_fails_closed(tmp_path):
 def test_no_mutation_api():
     exposed = {name for name in dir(AuditLog) if not name.startswith("_")}
     assert exposed == {"append", "verify", "entries"}  # append-only + read-only views
+
+
+# ── The chain itself: what prev_hash catches that nothing else does ────────
+#
+# verify() checks three things per entry, in order: the seq counter, the
+# prev_hash link, and the entry's own hash. The tampering tests above are
+# caught by the first or the third — a plain deletion trips the seq counter,
+# a plain edit trips the entry's own hash — so none of them ever reaches the
+# link check, and a coverage run shows the "chain break" return unexecuted.
+#
+# The tests below model the next attacker up: one who knows the format and
+# repairs everything *local* to what they touched — renumbers seq, recomputes
+# the entry's own hash. Only the link to the neighbouring entry is left
+# broken, so prev_hash is the one check standing between them and a clean
+# verify.
+#
+# The limit of the property, stated so it is not over-read: an attacker who
+# also relinks prev_hash is rewriting the whole chain from the point of the
+# edit, and that is undetectable — see tests/adversarial/test_audit_forgery.py.
+
+
+def _rehashed(entry: dict) -> str:
+    """Recompute an entry's own hash exactly as append() does."""
+    body = {k: v for k, v in entry.items() if k != "hash"}
+    entry["hash"] = _entry_hash(body)
+    return json.dumps(entry, sort_keys=True, separators=(",", ":"))
+
+
+def test_edit_with_recomputed_hash_is_caught_by_the_chain(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    log = _seeded_log(path)
+    entries = [json.loads(line) for line in _lines(path)]
+
+    entries[1]["payload"]["allow"] = False  # forge the recorded decision
+    lines = [json.dumps(e, sort_keys=True, separators=(",", ":")) for e in entries]
+    lines[1] = _rehashed(entries[1])  # ...and make the entry self-consistent
+    _write_lines(path, lines)
+
+    result = log.verify()
+    assert result.ok is False
+    # The forged entry itself verifies; its successor's link does not.
+    assert result.bad_seq == 2
+    assert result.reason == "chain break"
+
+
+def test_deletion_with_renumbered_seq_is_caught_by_the_chain(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    log = _seeded_log(path)
+    entries = [json.loads(line) for line in _lines(path)]
+
+    del entries[1]  # erase the policy decision...
+    for seq, entry in enumerate(entries):  # ...close the gap in the counter...
+        entry["seq"] = seq
+    lines = [_rehashed(e) for e in entries]  # ...and re-seal every entry
+    _write_lines(path, lines)
+
+    result = log.verify()
+    assert result.ok is False
+    # seq is contiguous again and every entry's own hash matches its body, so
+    # the only thing left out of place is the link across the deletion.
+    assert result.bad_seq == 1
+    assert result.reason == "chain break"

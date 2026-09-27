@@ -115,3 +115,47 @@ def test_only_query_steps_accepted(adapter):
 
     with pytest.raises(AdapterError):
         adapter.execute({"id": "s1", "type": "aggregate", "input": "s0"})
+
+
+# ── Faults only a live database can produce ────────────────────────────────
+#
+# Each one is raised for real by Postgres and must come back as an
+# AdapterError of the right kind, sanitized to exception class and SQLSTATE.
+
+
+def test_failing_catalog_read_is_a_schema_error(adapter, monkeypatch):
+    # Point the catalog query at a relation that does not exist: Postgres
+    # raises UndefinedTable (42P01) while the schema is being read.
+    import executor.adapters.postgres as pg
+    from executor.adapters.contract import AdapterError
+
+    monkeypatch.setattr(pg, "_SCHEMA_SQL", "SELECT * FROM fondaco_no_such_relation")
+    with pytest.raises(AdapterError) as excinfo:
+        adapter.get_schema()
+    assert excinfo.value.kind == "schema"
+    assert excinfo.value.message == "UndefinedTable (sqlstate=42P01)"
+
+
+def test_statement_without_a_result_set_is_refused(adapter):
+    # SET is legal in a read-only transaction and returns no rows description.
+    # The validator would never let it through; this is the adapter's own
+    # guard behind it.
+    from executor.adapters.contract import AdapterError
+
+    with pytest.raises(AdapterError) as excinfo:
+        adapter.execute(_step("SET statement_timeout = 5000"))
+    assert excinfo.value.kind == "execution"
+    assert excinfo.value.message == "statement returned no result set"
+
+
+def test_statement_timeout_is_a_timeout_error(seeded_database):
+    # A real server-side cancellation: a one-second statement timeout against
+    # a three-second sleep. QueryCanceled carries SQLSTATE 57014.
+    from executor.adapters.contract import AdapterError
+    from executor.adapters.postgres import PostgresAdapter
+
+    slow = PostgresAdapter(seeded_database, statement_timeout_s=1)
+    with pytest.raises(AdapterError) as excinfo:
+        slow.execute(_step("SELECT pg_sleep(3)"))
+    assert excinfo.value.kind == "timeout"
+    assert excinfo.value.message == "QueryCanceled (sqlstate=57014)"

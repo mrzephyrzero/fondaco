@@ -162,3 +162,37 @@ def test_label_parse_is_strict():
         Label.parse("Public ")
     with pytest.raises(LabelError):
         Label.parse(None)
+
+
+# ── Internal faults are a deny, never an exception (policy.py outer except) ─
+#
+# `evaluate` promises it never raises. Its inner handlers cover the two faults
+# it anticipates (an unknown clearance, a dangling step reference); anything
+# else must reach the outer catch-all and come back as a deny. These tests are
+# the only thing that executes that catch-all.
+
+
+def test_unanticipated_fault_from_hostile_input_is_a_deny():
+    # `steps` that cannot be iterated raises TypeError inside step_labels —
+    # neither LabelError nor KeyError, so no inner handler catches it.
+    decision = evaluate({"steps": None}, SCHEMA, "internal")
+    assert decision.allow is False
+    assert decision.reason_code == "policy_error"
+    assert decision.plan_label is None
+    assert decision.detail == "internal policy fault: TypeError"
+
+
+def test_internal_fault_detail_carries_the_type_not_the_message(monkeypatch):
+    # A fault raised from inside the engine, carrying something that must not
+    # travel: the decision reports the exception's type and nothing else.
+    import boundary.policy as policy
+
+    def explode(plan, schema_labels):
+        raise RuntimeError("customer 4111-1111-1111-1111")
+
+    monkeypatch.setattr(policy, "step_labels", explode)
+    decision = policy.evaluate(_plan("SELECT region FROM orders"), SCHEMA, "internal")
+    assert decision.allow is False
+    assert decision.reason_code == "policy_error"
+    assert "4111" not in decision.detail
+    assert decision.detail == "internal policy fault: RuntimeError"
