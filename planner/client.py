@@ -27,10 +27,10 @@ from dataclasses import dataclass, field
 import httpx
 
 from boundary.validator import ValidationResult, validate_plan
-from executor.adapters.contract import AnnotatedSchema
+from executor.adapters.contract import AnnotatedSchema, Column, Table, enum_metadata_allowed
 
 _PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
-DEFAULT_PROMPT_VERSION = "v3"
+DEFAULT_PROMPT_VERSION = "v4"
 
 
 class PlannerError(Exception):
@@ -62,8 +62,31 @@ def _load_prompt(version: str) -> str:
         return fh.read()
 
 
+def _column_payload(table: Table, column: Column) -> dict:
+    entry: dict = {
+        "name": column.name,
+        "type": column.sql_type,
+        "label": column.label,
+        "comment": column.comment,
+    }
+    # Semantic metadata crosses only for columns whose *effective* label is
+    # public/internal. The contract already refuses to build anything else;
+    # this re-check is the planner-side gate, so a contract regression alone
+    # cannot put confidential values into a prompt.
+    if enum_metadata_allowed(table.label, column.label):
+        if column.enum_values is not None:
+            entry["enum_values"] = list(column.enum_values)
+        if column.business_description is not None:
+            entry["business_description"] = column.business_description
+    return entry
+
+
 def _schema_payload(schema: AnnotatedSchema) -> str:
-    """Compact JSON view of the schema: metadata and statistics only."""
+    """Compact JSON view of the schema: metadata and statistics only.
+
+    The only values that ever appear are `enum_values` of public/internal
+    low-cardinality columns (adapter-contract v1 §2.1) — never rows.
+    """
     return json.dumps(
         {
             "tables": [
@@ -72,10 +95,7 @@ def _schema_payload(schema: AnnotatedSchema) -> str:
                     "label": t.label,
                     "row_count": t.row_count,
                     "comment": t.comment,
-                    "columns": [
-                        {"name": c.name, "type": c.sql_type, "label": c.label, "comment": c.comment}
-                        for c in t.columns
-                    ],
+                    "columns": [_column_payload(t, c) for c in t.columns],
                 }
                 for t in schema.tables
             ]

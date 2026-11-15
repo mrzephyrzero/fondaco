@@ -2,7 +2,20 @@
 
 Prompt templates are versioned files in this directory; every change gets an entry here.
 
-## v3 — 2026-07-14 (Phase 3, current)
+## v4 — 2026-11-15 (current)
+
+Follows two boundary changes. (1) Labeling is now column-precise: the label is
+the max over the columns a template references anywhere (including filters),
+not over every column of every table read, so the strategy section says
+"columns", and warns that filtering on a restricted column counts as reading
+it. (2) The annotated schema may carry `enum_values` and
+`business_description` for public/internal low-cardinality columns
+(adapter-contract v1); v4 tells the planner to pick filter values from that
+list instead of guessing, which removes zero-row plans caused by a wrong code.
+The v3 lessons stay (EXTRACT is no longer mis-labelled by the AST analyser,
+but the half-open range and to_char guidance remain good practice).
+
+## v3 — 2026-07-14 (Phase 3)
 
 Root-caused the v2 policy denials: templates using `EXTRACT(YEAR FROM col)`
 trip the label engine's conservative FROM-scan (any intra-function FROM
