@@ -6,6 +6,7 @@
 <p>
   <span class="badge st-{{ r.status }}">{{ r.status }}</span>
   {% if r.approver %}<span class="muted">decided by {{ r.approver }}</span>{% endif %}
+  {% if r.approval_mode == 'auto' %}<span class="badge">auto-approved by risk policy</span>{% endif %}
   <span class="muted">plan {{ plan_id }}</span>
 </p>
 
@@ -46,6 +47,10 @@
   {% endfor %}
 </table>
 
+{% if r.status == 'pending' and r.held_result %}
+<p class="muted">This plan was auto-approved and executed, but its result has fewer rows than
+  the auto-release minimum, so it is held until a human releases it.</p>
+{% endif %}
 {% if r.status == 'pending' %}
 <h3>Decision</h3>
 <form method="post" style="display:inline" action="/plans/{{ plan_id }}/approve">
