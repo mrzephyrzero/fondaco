@@ -29,9 +29,10 @@ def test_schema_labels_and_fallback(adapter):
 @requires_db
 def test_column_label_raises_its_table_against_real_schema(adapter):
     # employees is annotated 'internal' but carries a 'restricted' salary column.
-    # The whole table therefore labels restricted, even for a template that never
-    # mentions salary — the over-approximation of label-model.md §4, read off a
-    # real Postgres schema rather than a hand-built fixture.
+    # Labeling is column-precise (label-model.md §4, "columns read"): a template
+    # that never touches salary stays internal, one that reads salary anywhere —
+    # including only in a filter — is restricted. Read off a real Postgres
+    # schema rather than a hand-built fixture.
     from boundary.policy import Label, query_label
     from executor.adapters.contract import schema_labels_dict
 
@@ -43,7 +44,10 @@ def test_column_label_raises_its_table_against_real_schema(adapter):
     assert columns["department"].label == "internal"
 
     labels = schema_labels_dict(schema)
-    assert query_label("SELECT department FROM employees", labels) == Label.RESTRICTED
+    assert query_label("SELECT department FROM employees", labels) == Label.INTERNAL
+    assert query_label("SELECT salary FROM employees", labels) == Label.RESTRICTED
+    filtered = "SELECT department FROM employees WHERE salary > %(floor)s"
+    assert query_label(filtered, labels) == Label.RESTRICTED
 
 
 @requires_db

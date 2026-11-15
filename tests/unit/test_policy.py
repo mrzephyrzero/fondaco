@@ -50,9 +50,11 @@ def test_deny_when_label_exceeds_clearance():
     assert decision.reason_code == "label_exceeds_clearance"
 
 
-def test_unknown_table_is_restricted():
-    decision = evaluate(_plan("SELECT x FROM shadow_table"), SCHEMA, "confidential")
+def test_unknown_table_is_an_absolute_deny():
+    # Not merely restricted: no clearance, not even restricted, admits it.
+    decision = evaluate(_plan("SELECT x FROM shadow_table"), SCHEMA, "restricted")
     assert decision.allow is False
+    assert decision.reason_code == "unknown_relation"
 
 
 def test_unlabeled_table_is_restricted():
@@ -67,18 +69,15 @@ def test_unknown_label_string_escalates_not_lowers():
     assert decision.allow is False
 
 
-# ── A column may raise its table's label; it may never lower it ────────────
+# ── Column-level granularity (label-model.md §4: "columns read") ─────────
 #
-# `_table_label` takes the max over the table label *and every column of that
-# table*, so a single high column pulls the whole table up. Until these tests
-# existed no fixture in the repo had a column labeled above its table, which
-# left the raising branch unexecuted — in the function that decides every label.
-#
-# This is also where label-model.md §4 ("max over every column read by the
-# template") and the implementation visibly part company: the scan does not
-# work out which columns a template reads, so the label is computed over *all*
-# columns of every referenced table. That over-approximates — it can only raise
-# a label, never lower one — and the second test below pins that behaviour.
+# The step label is the max over the effective labels of the columns a template
+# actually references — in SELECT, WHERE, JOIN … ON, GROUP BY, HAVING, ORDER BY
+# and any subquery — with every table read as a floor. A column's effective
+# label is max(column, table): a column may raise its table's label, never
+# lower it. This replaced the whole-table over-approximation of the regex
+# scanner, under which `SELECT department FROM employees` was restricted only
+# because `salary` existed.
 
 _MIXED = {
     "employees": {
@@ -94,14 +93,39 @@ def test_column_label_raises_the_table_label():
     assert decision.plan_label == "restricted"
 
 
-def test_unread_high_column_still_raises_the_label():
-    # `salary` is not in the select list. The label is restricted anyway: this is
-    # the documented over-approximation, not a bug. It over-restricts, which is
-    # the safe direction — but it does mean a table is only as usable as its
-    # most sensitive column.
+def test_unread_high_column_no_longer_raises_the_label():
+    # `salary` is never referenced, so it is never read: the result is internal.
     decision = evaluate(_plan("SELECT department FROM employees"), _MIXED, "internal")
+    assert decision.allow is True
+    assert decision.plan_label == "internal"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "SELECT department FROM employees WHERE salary > %(floor)s",
+        "SELECT department FROM employees ORDER BY salary",
+        "SELECT department FROM employees GROUP BY department HAVING max(salary) > %(floor)s",
+        "SELECT e.name FROM employees e JOIN employees s ON e.salary = s.salary",
+        "SELECT department FROM employees WHERE salary IS NOT NULL GROUP BY department",
+    ],
+)
+def test_restricted_column_used_only_as_a_filter_is_read(template):
+    # A predicate on a restricted column is an inference channel on it: reading
+    # it in WHERE/ORDER BY/HAVING/ON counts exactly like selecting it.
+    params = {"floor": {"type": "int", "value": 1}} if "%(floor)s" in template else {}
+    plan = _plan(template)
+    plan["steps"][0]["params"] = params
+    decision = evaluate(plan, _MIXED, "internal")
     assert decision.allow is False
     assert decision.plan_label == "restricted"
+
+
+def test_table_label_is_a_floor_when_no_column_is_named():
+    # count(*) names no column; the table is still read, so its label applies.
+    decision = evaluate(_plan("SELECT count(*) AS n FROM employees"), _MIXED, "public")
+    assert decision.allow is False
+    assert decision.plan_label == "internal"
 
 
 def test_column_label_below_the_table_label_changes_nothing():
@@ -127,11 +151,22 @@ def test_restricted_result_at_restricted_clearance_allows():
     assert decision.allow is True
 
 
-def test_subquery_is_unresolvable_hence_restricted():
+def test_subquery_is_resolved_through_its_alias():
+    # Derived tables used to be unresolvable (→ restricted). The AST resolves
+    # `sub.name` to products.name: public.
+    decision = evaluate(
+        _plan("SELECT sub.name FROM (SELECT name FROM products) sub"), SCHEMA, "public"
+    )
+    assert decision.allow is True
+    assert decision.plan_label == "public"
+
+
+def test_unknown_column_in_a_known_table_is_restricted():
     decision = evaluate(
         _plan("SELECT x FROM (SELECT name FROM products) sub"), SCHEMA, "confidential"
     )
     assert decision.allow is False
+    assert decision.plan_label == "restricted"
 
 
 def test_join_takes_max_of_both_tables():
@@ -187,7 +222,7 @@ def test_internal_fault_detail_carries_the_type_not_the_message(monkeypatch):
     # travel: the decision reports the exception's type and nothing else.
     import boundary.policy as policy
 
-    def explode(plan, schema_labels):
+    def explode(plan, schema_labels, *args):
         raise RuntimeError("customer 4111-1111-1111-1111")
 
     monkeypatch.setattr(policy, "step_labels", explode)

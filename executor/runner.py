@@ -115,12 +115,15 @@ def _aggregate(step: dict, source: LabeledResult, k: int) -> tuple[LabeledResult
     return result, suppression.suppressed
 
 
-def run_plan(plan: dict, adapter: Adapter, k: int = DEFAULT_K) -> RunResult:
+def run_plan(
+    plan: dict, adapter: Adapter, k: int = DEFAULT_K, dialect: str | None = None
+) -> RunResult:
     """Execute a plan. Re-validates first; refuses non-read-only adapters.
 
-    `k` is the cardinality threshold applied to every aggregate result.
+    `k` is the cardinality threshold applied to every aggregate result;
+    `dialect` is the SQL grammar the re-validation parses templates with.
     """
-    validation = validate_plan(plan)
+    validation = validate_plan(plan, dialect)
     if not validation.valid:
         codes = ",".join(sorted({e.code for e in validation.errors}))
         raise ExecutorError("invalid_plan", f"refusing unvalidated plan: {codes}")

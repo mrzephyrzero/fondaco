@@ -1,11 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""Plan validation against the Plan DSL v0 (design/plan-dsl.md §4).
+"""Plan validation against the Plan DSL (design/plan-dsl.md §4).
 
-Two layers, both mandatory: JSON Schema (boundary/plan_schema.json) and
-structural rules the schema cannot express. Plans are LLM output and
-treated as hostile; any internal fault invalidates the plan (fail
-closed). This module never repairs input and never raises to callers.
+Three layers, all mandatory: JSON Schema (boundary/plan_schema.json),
+structural rules the schema cannot express, and — for every query template
+that passes the textual rules of §3.1 — a strict parse into a syntax tree
+(boundary/sql_ast.py) that whitelists structure: one SELECT, no write or
+session-changing node anywhere, no comments, no table functions or
+qualified relations, allowlisted functions only. The textual rules stay in
+front of the parser as defense in depth: the parser is a large third-party
+component and is not trusted to be the only gate.
+
+Plans are LLM output and treated as hostile; any internal fault invalidates
+the plan (fail closed). This module never repairs input and never raises to
+callers.
 """
 
 from __future__ import annotations
@@ -17,6 +25,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 import jsonschema
+
+from boundary.sql_ast import SqlRejected, parse_template, resolve_dialect
 
 _SCHEMA = json.loads((Path(__file__).with_name("plan_schema.json")).read_text(encoding="utf-8"))
 _SCHEMA_VALIDATOR = jsonschema.Draft202012Validator(_SCHEMA)
@@ -75,8 +85,11 @@ def _param_value_matches(dsl_type: str, value: object) -> bool:
     return False
 
 
-def _check_template(step_path: str, step: dict, errors: list[ValidationError]) -> None:
+def _check_template(
+    step_path: str, step: dict, errors: list[ValidationError], dialect: str
+) -> None:
     template: str = step["template"]
+    errors_before = len(errors)
     if not _SELECT_RE.match(template):
         errors.append(_err("template_not_select", step_path, "template must begin with SELECT"))
     if ";" in template:
@@ -111,8 +124,16 @@ def _check_template(step_path: str, step: dict, errors: list[ValidationError]) -
                 )
             )
 
+    if len(errors) == errors_before:
+        # Only a template that already passes every textual rule is parsed;
+        # the parser is a second gate, never a substitute for the first.
+        try:
+            parse_template(template, dialect)
+        except SqlRejected as exc:
+            errors.append(_err(exc.code, step_path, exc.detail))
 
-def _structural_errors(plan: dict) -> list[ValidationError]:
+
+def _structural_errors(plan: dict, dialect: str) -> list[ValidationError]:
     errors: list[ValidationError] = []
     steps: list[dict] = plan["steps"]
 
@@ -149,14 +170,23 @@ def _structural_errors(plan: dict) -> list[ValidationError]:
                         )
                     )
         if step["type"] == "query":
-            _check_template(step_path, step, errors)
+            _check_template(step_path, step, errors, dialect)
         seen.add(step["id"])
     return errors
 
 
-def validate_plan(raw: object) -> ValidationResult:
-    """Validate an untrusted plan. Never raises; any fault → invalid."""
+def validate_plan(raw: object, dialect: str | None = None) -> ValidationResult:
+    """Validate an untrusted plan. Never raises; any fault → invalid.
+
+    `dialect` selects the SQL grammar templates are parsed with (default:
+    FONDACO_SQL_DIALECT, else postgres). An unsupported dialect invalidates
+    every plan rather than falling back to a default.
+    """
     try:
+        try:
+            dialect_name = resolve_dialect(dialect)
+        except SqlRejected as exc:
+            return ValidationResult(valid=False, errors=(_err(exc.code, "", exc.detail),))
         schema_errors = [
             _err("schema_violation", "/".join(str(p) for p in e.absolute_path), e.message)
             for e in _SCHEMA_VALIDATOR.iter_errors(raw)
@@ -164,7 +194,7 @@ def validate_plan(raw: object) -> ValidationResult:
         if schema_errors:
             return ValidationResult(valid=False, errors=tuple(schema_errors))
         assert isinstance(raw, dict)  # noqa: S101 — guaranteed by schema; for the type checker
-        errors = _structural_errors(raw)
+        errors = _structural_errors(raw, dialect_name)
         return ValidationResult(valid=not errors, errors=tuple(errors))
     except Exception as exc:  # fail closed: an internal fault is a validation failure
         detail = f"internal validation fault: {type(exc).__name__}"
