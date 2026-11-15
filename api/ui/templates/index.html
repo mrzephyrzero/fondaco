@@ -3,6 +3,7 @@
 <h2>Ask a question</h2>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <form method="post" action="/ask" hx-post="/ask" hx-indicator="this">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input id="question" type="text" name="question" placeholder="e.g. How many orders were placed per region since October 2025?" required>
   <p>
     <button type="submit">Generate plan</button>

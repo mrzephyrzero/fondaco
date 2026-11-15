@@ -33,6 +33,7 @@ def _client(adapter, tmp_path):
 
     from api.main import create_app
     from planner.demo import DemoPlanner
+    from tests.ui_auth import sign_in
 
     app = create_app(
         adapter=adapter,
@@ -40,7 +41,7 @@ def _client(adapter, tmp_path):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    return TestClient(app)
+    return sign_in(TestClient(app), "demo")
 
 
 def _ask(client, question):

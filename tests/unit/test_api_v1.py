@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from api.main import create_app
 from boundary.approval_policy import ApprovalPolicy
 from planner.client import PlannerClient
+from tests.ui_auth import sign_in
 from tests.unit.conftest import VALID_PLAN
 from tests.unit.test_api import CountingAdapter, _good_steps, _restricted_steps
 from tests.unit.test_planner import SequencedLLM
@@ -64,7 +65,8 @@ def test_planner_written_plan_waits_for_a_human(tmp_path):
     executed = client.post(f"/api/v1/plans/{body['plan_id']}/execute")
     assert executed.status_code == 409
     assert adapter.execute_calls == 0
-    # A human approves in the UI; the agent then reads the result.
+    # A human signs in and approves in the UI; the agent then reads the result.
+    sign_in(client, "dana")
     client.post(f"/plans/{body['plan_id']}/approve", data={"approver": "dana"})
     after = client.post(f"/api/v1/plans/{body['plan_id']}/execute").json()
     assert after["status"] == "executed"

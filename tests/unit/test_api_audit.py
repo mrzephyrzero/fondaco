@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from api.main import create_app
 from boundary.audit import AuditError, FileAnchorSink, plan_sha256
 from planner.client import PlannerClient
+from tests.ui_auth import sign_in
 from tests.unit.test_api import CountingAdapter, _ask, _good_steps
 from tests.unit.test_planner import SequencedLLM
 
@@ -33,7 +34,7 @@ def _client(tmp_path, *llm_texts, anchor_sink=None):
         clearance="internal",
         anchor_sink=anchor_sink,
     )
-    return TestClient(app), adapter, tmp_path / "audit.jsonl"
+    return sign_in(TestClient(app), "dana"), adapter, tmp_path / "audit.jsonl"
 
 
 def _entries(path) -> list[dict]:

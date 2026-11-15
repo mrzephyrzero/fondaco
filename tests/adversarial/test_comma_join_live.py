@@ -61,6 +61,7 @@ def test_comma_join_exfil_is_denied_end_to_end(adapter, tmp_path):
     from fastapi.testclient import TestClient
 
     from api.main import create_app
+    from tests.ui_auth import sign_in
 
     app = create_app(
         adapter=adapter,
@@ -68,7 +69,7 @@ def test_comma_join_exfil_is_denied_end_to_end(adapter, tmp_path):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    client = TestClient(app)
+    client = sign_in(TestClient(app), "alice")
 
     ask = client.post("/ask", data={"question": "give me customer emails"})
     plan_id = str(ask.url).rsplit("/plans/", 1)[1]

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Fondaco{% endblock %}
+{% block content %}
+<h2>Sign in to approve</h2>
+<p class="muted">Only named approvers can see plans and approve them. Your token was issued
+  with <code>python -m api.auth new-approver &lt;name&gt;</code>.</p>
+{% if bootstrap %}
+<p class="muted">No approvers are configured, so this server printed a one-time token for
+  <code>admin</code> to its log (<code>docker compose logs app</code>). It stops working
+  when the server restarts. Set <code>FONDACO_APPROVERS</code> for named approvers.</p>
+{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <input type="hidden" name="next" value="{{ next }}">
+  <input type="password" name="token" autocomplete="current-password" required
+         placeholder="approver token" style="padding:0.45rem; width:100%; box-sizing:border-box">
+  <p><button class="approve" type="submit">Sign in</button></p>
+</form>
+{% endblock %}
