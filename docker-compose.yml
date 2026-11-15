@@ -4,7 +4,10 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      # Published on the host's loopback only. The approval UI requires an
+      # approver token either way; widen this (FONDACO_BIND_ADDRESS=0.0.0.0)
+      # only behind TLS, with FONDACO_UI_COOKIE_SECURE=true.
+      - "${FONDACO_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     environment:
       # The app connects as the SELECT-only role; only init scripts run as the owner.
       DATABASE_URL: postgresql://fondaco_ro:fondaco-ro-dev@db:5432/fondaco
@@ -33,7 +36,14 @@ services:
       FONDACO_AUTO_APPROVE_MAX_LABEL: ${FONDACO_AUTO_APPROVE_MAX_LABEL:-internal}
       FONDACO_AUTO_APPROVE_MIN_ROWS: ${FONDACO_AUTO_APPROVE_MIN_ROWS:-10}
       # Bearer token for /api/v1 (the MCP server's surface); unset = no token.
+      # It never opens the approval UI and must differ from every approver token.
       FONDACO_API_TOKEN: ${FONDACO_API_TOKEN:-}
+      # Approvers for the UI: "name:sha256hex" entries from
+      # `python -m api.auth new-approver <name>`. Unset = a one-time token for
+      # 'admin' is printed to `docker compose logs app` at every start.
+      FONDACO_APPROVERS: ${FONDACO_APPROVERS:-}
+      FONDACO_UI_SESSION_TTL_S: ${FONDACO_UI_SESSION_TTL_S:-28800}
+      FONDACO_UI_COOKIE_SECURE: ${FONDACO_UI_COOKIE_SECURE:-false}
     volumes:
       - audit_data:/data
     extra_hosts:

@@ -50,6 +50,7 @@ truest test that the boundary generalizes beyond a demo database.
 
 Items deferred out of scope during development land here with a one-line note.
 
-- Per-user identity & authorization (V1 has no auth; the approver is
-  self-declared, the query budget is per-session-cookie). A real deployment
-  needs identity — noted in the threat model as a known limitation.
+- SSO/OIDC sign-in and approver roles. Approvers sign in with personal tokens
+  since 2026-11-15 (`api/auth.py`); an OIDC login would replace only `/login`,
+  keeping the session, CSRF and audit identity as they are. Per-agent identity
+  on `/api/v1` (the budget there is still per session cookie) belongs here too.
