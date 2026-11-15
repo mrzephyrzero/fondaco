@@ -3,11 +3,20 @@
 """Microsoft SQL Server adapter (pyodbc), strictly read-only.
 
 Defense in depth, outermost first:
-  * the login should hold only SELECT on the exposed schema (deployment);
+  * the login must hold only read permissions — and the adapter checks: on
+    every connection it lists the login's effective permissions on the
+    database, its schemas and its tables and views, and refuses to run
+    anything if one of them is not a read (`_READ_PERMISSIONS`). This is the
+    layer that actually enforces read-only. Verified against a live server:
+    neither `ApplicationIntent=ReadOnly` nor ODBC's read-only access mode
+    stops a write on a standalone instance, so a db_owner login would
+    otherwise commit `INSERT …; COMMIT; SELECT 1` as handed to it;
   * the connection string is forced to `ApplicationIntent=ReadOnly`, which
-    routes to a readable secondary in an Availability Group and declares the
-    session read-only everywhere else;
-  * pyodbc opens the connection with `readonly=True` (SQL_ATTR_ACCESS_MODE);
+    routes to a readable secondary in an Availability Group (it is only a
+    routing hint everywhere else);
+  * pyodbc opens the connection with `readonly=True` (SQL_ATTR_ACCESS_MODE),
+    a hint the Microsoft driver does not enforce;
+  * every statement runs inside a transaction that is always rolled back;
   * every session sets `LOCK_TIMEOUT` (a read never waits on a writer's lock
     for long), a query timeout, and READ COMMITTED isolation;
   * the boundary only ever hands this adapter single parsed SELECTs.
@@ -43,6 +52,22 @@ DIALECT = "tsql"
 _LABEL_RE = re.compile(r"^label:(public|internal|confidential|restricted)\b\s*(.*)", re.DOTALL)
 _TIMEOUT_SQLSTATES = {"HYT00", "HYT01"}
 _LOCK_TIMEOUT_NATIVE = 1222
+
+# Effective permissions a read-only login may hold. Allow-list, not deny-list:
+# a permission SQL Server adds in a later release is refused until reviewed.
+_READ_PERMISSIONS = frozenset({"CONNECT", "SELECT", "REFERENCES", "SHOWPLAN", "UNMASK"})
+
+_PERMISSIONS_SQL = """
+SELECT permission_name FROM fn_my_permissions(NULL, 'DATABASE')
+UNION
+SELECT p.permission_name FROM sys.schemas s
+CROSS APPLY fn_my_permissions(QUOTENAME(s.name), 'SCHEMA') p
+UNION
+SELECT p.permission_name FROM sys.objects o
+CROSS APPLY fn_my_permissions(
+    QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name), 'OBJECT') p
+WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
+"""
 
 _SCHEMA_SQL = """
 SELECT t.name,
@@ -91,6 +116,12 @@ def _sanitize(exc: Exception) -> str:
     args = getattr(exc, "args", ())
     sqlstate = args[0] if args and isinstance(args[0], str) and len(args[0]) == 5 else "unknown"
     return f"{type(exc).__name__} (sqlstate={sqlstate})"
+
+
+def _write_permissions(names: list) -> list[str]:
+    """Every permission that is not a plain read; empty means the login is read-only."""
+    held = {str(n).upper() for n in names}
+    return sorted(n for n in held if n not in _READ_PERMISSIONS and not n.startswith("VIEW "))
 
 
 def _is_timeout(exc: Exception) -> bool:
@@ -145,10 +176,18 @@ class SqlServerAdapter:
             cur.execute("SET NOCOUNT ON")
             cur.execute("SELECT SCHEMA_NAME()")
             default_schema = cur.fetchone()[0]
+            cur.execute(_PERMISSIONS_SQL)
+            writes = _write_permissions([row[0] for row in cur.fetchall()])
         except AdapterError:
             raise
         except driver_error as exc:
             raise AdapterError("connection", _sanitize(exc)) from exc
+        if writes:
+            conn.close()
+            shown = ", ".join(writes[:5]) + (", ..." if len(writes) > 5 else "")
+            raise AdapterError(
+                "connection", f"login is not read-only (holds {shown}); grant it SELECT only"
+            )
         if default_schema != self._schema:
             conn.close()
             raise AdapterError(
