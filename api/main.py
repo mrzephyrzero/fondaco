@@ -14,6 +14,8 @@ field (documented limitation; see DECISIONS.md and Phase 7/8).
 
 from __future__ import annotations
 
+import hmac
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -57,7 +59,13 @@ from boundary.policy import PolicyDecision, UnknownRelation, evaluate, step_labe
 from executor.adapters.annotations import annotations_from_env
 from executor.adapters.contract import Adapter, schema_labels_dict
 from executor.runner import ExecutorError, RunResult, run_plan
-from planner.client import PlannerClient, PlannerError, client_from_env
+from planner.client import (
+    PlannerClient,
+    PlannerError,
+    assemble_plan,
+    client_from_env,
+    schema_payload,
+)
 
 SESSION_COOKIE = "fondaco_session"
 
@@ -73,6 +81,7 @@ _UI_DIR = Path(__file__).parent / "ui"
 PENDING = "pending"
 DENIED = "denied"
 EXECUTED = "executed"
+APPROVED = "approved"  # auto-approved via the JSON API, not yet executed
 REJECTED = "rejected"
 FAILED = "failed"
 
@@ -120,6 +129,9 @@ def create_app(
     if anchor_sink is None:
         anchor_sink = anchor_sink_from_env()
     approval = approval_policy if approval_policy is not None else policy_from_env()
+    # Optional bearer token for /api/v1 (the MCP server sends it). Unset keeps
+    # V1's unauthenticated local-demo posture; see README.
+    api_token = (os.environ.get("FONDACO_API_TOKEN") or "").strip()
 
     @app.exception_handler(AuditError)
     async def _audit_failure(request: Request, exc: AuditError):
@@ -269,42 +281,69 @@ def create_app(
         response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
         return response
 
-    @app.post("/ask")
-    async def ask(request: Request):
-        if "json" in request.headers.get("content-type", ""):
-            question = str((await request.json()).get("question", "")).strip()
-        else:
-            question = str((await request.form()).get("question", "")).strip()
-        if not question:
-            return RedirectResponse("/?error=empty+question", status_code=303)
+    def hold_if_small(record: PlanRecord, plan_id: str) -> None:
+        """An auto-approved result below min_rows waits for a human release."""
+        if record.approval_mode != "auto" or record.status != EXECUTED:
+            return
+        if release_allowed(approval, len(record.result.rows)):
+            return
+        # Small results are where inference risk lives: hold it back and hand
+        # the release decision to a human.
+        record.held_result, record.result = record.result, None
+        record.status = PENDING
+        audit.append(
+            EVENT_APPROVAL,
+            {
+                "plan_id": plan_id,
+                "decision": "hold_for_human",
+                "approver": AUTO_APPROVAL_ACTOR,
+                "reasons": ["below_auto_approve_min_rows"],
+                "min_rows": approval.auto_approve_min_rows,
+            },
+            actor=AUTO_APPROVAL_ACTOR,
+            plan=record.plan,
+        )
 
+    def propose(
+        question: str, sid: str, steps: object = None, run_auto: bool = True
+    ) -> tuple[str | None, dict | None]:
+        """question (+ optional client-written steps) → plan → validate → policy → approval.
+
+        Shared by the UI (`/ask`, which runs an auto-approved plan at once) and
+        the JSON API used by the MCP server (`run_auto=False`: an auto-approved
+        plan waits in `approved` until the client asks to execute it). Client
+        steps are hostile input exactly like LLM output: they cross the same
+        envelope assembly and validator, and the boundary assigns the plan id.
+        Returns (plan_id, None) or (None, machine-readable error).
+        """
         require_intact_audit()
         audit.append(EVENT_QUESTION_RECEIVED, {"question": question})
-        working_adapter = get_adapter()
-        schema = working_adapter.get_schema()
+        schema = get_adapter().get_schema()
         labels_dict = schema_labels_dict(schema)
 
-        try:
-            plan, trace = get_planner().generate_plan(question, schema)
-        except PlannerError as exc:
-            audit.append(
-                EVENT_PLAN_GENERATED,
-                {"success": False, "error_code": exc.code, "question": question},
-            )
-            return RedirectResponse(f"/?error=planner+failed:+{exc.code}", status_code=303)
-
+        if steps is None:
+            try:
+                plan, trace = get_planner().generate_plan(question, schema)
+            except PlannerError as exc:
+                audit.append(
+                    EVENT_PLAN_GENERATED,
+                    {"success": False, "error_code": exc.code, "question": question},
+                )
+                return None, {"error": "planner_failed", "code": exc.code}
+            attempts = trace.attempts
+            generated = {"prompt_version": trace.prompt_version, "attempts": len(attempts)}
+        else:
+            plan, attempt = assemble_plan(question, steps)
+            attempts = [attempt]
+            generated = {"source": "client", "attempts": 1}
         plan_id = plan["plan_id"]
+        invalid = steps is not None and not attempts[0].validation.valid
         audit.append(
             EVENT_PLAN_GENERATED,
-            {
-                "success": True,
-                "plan_id": plan_id,
-                "prompt_version": trace.prompt_version,
-                "attempts": len(trace.attempts),
-            },
+            {"success": not invalid, "plan_id": plan_id, **generated},
             plan=plan,
         )
-        for i, attempt in enumerate(trace.attempts):
+        for i, attempt in enumerate(attempts):
             audit.append(
                 EVENT_VALIDATION_RESULT,
                 {
@@ -318,6 +357,14 @@ def create_app(
                 },
                 plan=plan,
             )
+        if invalid:
+            return None, {
+                "error": "invalid_plan",
+                "validation_errors": [
+                    {"code": e.code, "path": e.path, "detail": e.detail[:200]}
+                    for e in attempts[0].validation.errors
+                ],
+            }
 
         decision = evaluate(plan, labels_dict, clearance)
         audit.append(
@@ -342,7 +389,6 @@ def create_app(
             labels=labels,
         )
         plans[plan_id] = record
-        sid = session_id(request)
         if decision.allow and approval.auto_approve_enabled:
             verdict = decide(approval, plan, decision, labels_dict, budget.state(sid).remaining)
             audit.append(
@@ -359,27 +405,149 @@ def create_app(
             if verdict.auto:
                 record.approval_mode = "auto"
                 record.approver = AUTO_APPROVAL_ACTOR
-                if execute(record, plan_id, sid) is None and record.status == EXECUTED:
-                    if not release_allowed(approval, len(record.result.rows)):
-                        # Small results are where inference risk lives: hold it
-                        # back and hand the release decision to a human.
-                        record.held_result, record.result = record.result, None
-                        record.status = PENDING
-                        audit.append(
-                            EVENT_APPROVAL,
-                            {
-                                "plan_id": plan_id,
-                                "decision": "hold_for_human",
-                                "approver": AUTO_APPROVAL_ACTOR,
-                                "reasons": ["below_auto_approve_min_rows"],
-                                "min_rows": approval.auto_approve_min_rows,
-                            },
-                            actor=AUTO_APPROVAL_ACTOR,
-                            plan=plan,
-                        )
+                if run_auto:
+                    if execute(record, plan_id, sid) is None:
+                        hold_if_small(record, plan_id)
+                else:
+                    record.status = APPROVED
+        return plan_id, None
+
+    @app.post("/ask")
+    async def ask(request: Request):
+        if "json" in request.headers.get("content-type", ""):
+            question = str((await request.json()).get("question", "")).strip()
+        else:
+            question = str((await request.form()).get("question", "")).strip()
+        if not question:
+            return RedirectResponse("/?error=empty+question", status_code=303)
+        sid = session_id(request)
+        plan_id, error = propose(question, sid)
+        if error is not None:
+            return RedirectResponse(f"/?error=planner+failed:+{error['code']}", status_code=303)
         response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
         response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
         return response
+
+    # ── JSON API (/api/v1) — the surface the MCP server proxies ──────────
+    # Deliberately no approve or reject endpoint: a client (an agent) can
+    # propose, inspect and execute what is already approved; only a human
+    # approves, in the UI. A policy deny is final here as everywhere.
+
+    def api_authorized(request: Request) -> bool:
+        if not api_token:
+            return True
+        supplied = request.headers.get("authorization", "")
+        return hmac.compare_digest(supplied.encode(), f"Bearer {api_token}".encode())
+
+    def api_response(body: dict, status: int, sid: str) -> JSONResponse:
+        response = JSONResponse(body, status_code=status)
+        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
+        return response
+
+    def plan_view(plan_id: str, record: PlanRecord) -> dict:
+        status = {PENDING: "pending_approval", APPROVED: "auto_approved"}.get(
+            record.status, record.status
+        )
+        view = {
+            "plan_id": plan_id,
+            "question": record.question,
+            "status": status,
+            "approval_mode": record.approval_mode,
+            "policy": {
+                "allow": record.decision.allow,
+                "reason_code": record.decision.reason_code,
+                "plan_label": record.decision.plan_label,
+            },
+            "step_labels": record.labels,
+            "steps": record.plan["steps"],
+            "approval_path": f"/plans/{plan_id}",
+            "held_for_human": record.held_result is not None,
+            "error": record.error,
+            "result": None,
+        }
+        if record.status == EXECUTED and record.result is not None:
+            result = record.result
+            view["result"] = json.loads(
+                json.dumps(
+                    {
+                        "title": result.title,
+                        "columns": list(result.columns),
+                        "rows": [list(r) for r in result.rows],
+                        "label": result.label,
+                        "row_count": len(result.rows),
+                        "suppressed_groups": result.suppressed_groups,
+                        "digest": result.digest,
+                    },
+                    default=str,
+                )
+            )
+        return view
+
+    @app.get("/api/v1/schema")
+    def api_schema(request: Request):
+        sid = session_id(request)
+        if not api_authorized(request):
+            return api_response({"error": "unauthorized"}, 401, sid)
+        # Exactly what the planner sees: names, types, labels, comments, and
+        # enum metadata only where the effective label allows it.
+        payload = json.loads(schema_payload(get_adapter().get_schema()))
+        return api_response({**payload, "clearance": clearance}, 200, sid)
+
+    @app.post("/api/v1/plans")
+    async def api_propose(request: Request):
+        sid = session_id(request)
+        if not api_authorized(request):
+            return api_response({"error": "unauthorized"}, 401, sid)
+        raw = await request.body()
+        if len(raw) > 256 * 1024:
+            return api_response({"error": "body larger than 256 KiB"}, 413, sid)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return api_response({"error": "body must be JSON"}, 400, sid)
+        if not isinstance(body, dict):
+            return api_response({"error": "body must be a JSON object"}, 400, sid)
+        question = body.get("question")
+        if not isinstance(question, str) or not question.strip():
+            return api_response({"error": "question is required"}, 400, sid)
+        if len(question) > 2000:
+            return api_response({"error": "question longer than 2000 characters"}, 400, sid)
+        plan_id, error = propose(question.strip(), sid, steps=body.get("steps"), run_auto=False)
+        if error is not None:
+            return api_response(error, 422, sid)
+        return api_response(plan_view(plan_id, plans[plan_id]), 201, sid)
+
+    @app.get("/api/v1/plans/{plan_id}")
+    def api_plan_status(request: Request, plan_id: str):
+        sid = session_id(request)
+        if not api_authorized(request):
+            return api_response({"error": "unauthorized"}, 401, sid)
+        record = plans.get(plan_id)
+        if record is None:
+            return api_response({"error": "plan not found"}, 404, sid)
+        return api_response(plan_view(plan_id, record), 200, sid)
+
+    @app.post("/api/v1/plans/{plan_id}/execute")
+    def api_execute(request: Request, plan_id: str):
+        sid = session_id(request)
+        if not api_authorized(request):
+            return api_response({"error": "unauthorized"}, 401, sid)
+        record = plans.get(plan_id)
+        if record is None:
+            return api_response({"error": "plan not found"}, 404, sid)
+        if record.status == APPROVED:
+            require_intact_audit()
+            blocked = execute(record, plan_id, sid)
+            if blocked is not None:
+                return api_response(plan_view(plan_id, record), 429, sid)
+            hold_if_small(record, plan_id)
+        elif record.status == PENDING:
+            # Waiting for a human in the UI (or holding a small result).
+            return api_response(plan_view(plan_id, record), 409, sid)
+        elif record.status != EXECUTED:
+            return api_response(plan_view(plan_id, record), 409, sid)
+        status = 200 if record.status == EXECUTED else 409
+        return api_response(plan_view(plan_id, record), status, sid)
 
     @app.get("/plans/{plan_id}", response_class=HTMLResponse)
     def plan_detail(request: Request, plan_id: str):
