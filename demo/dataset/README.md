@@ -12,15 +12,15 @@ loaded automatically by `docker compose up` via `init/*.sql`:
 | `stock_movements` | 15 000 | `internal` |
 | `employees` | 120 | `internal` table, **`restricted` salary column** |
 
-PII sits in its own table (`customers`) so that internal-clearance demo
-queries over `orders`/`deliveries`/`stock_movements` pass policy despite the
-whole-table label over-approximation (see DECISIONS.md).
+PII sits in its own table (`customers`), as a normalized warehouse would keep
+it. (It was originally also a workaround for the whole-table label
+over-approximation of the regex scanner; labeling is now column-precise, see
+DECISIONS.md.)
 
-`employees` is the counter-example, and the only table here that exercises the
-column-level part of the label model: the table is `internal`, one column is
-`restricted`, and the policy engine maxes over both — so *every* query against
-it labels `restricted`, including `SELECT department FROM employees`, which
-never reads salary. A table is only as usable as its most sensitive column.
+`employees` is the table that exercises the column-level part of the label
+model: the table is `internal`, `salary` is `restricted`. A template that never
+references salary — `SELECT department FROM employees` — is `internal`; one
+that reads salary anywhere, even only in a `WHERE` filter, is `restricted`.
 Everywhere else in this dataset the column annotations sit at or below their
 table's label, which means they change no decision at all.
 

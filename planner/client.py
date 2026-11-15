@@ -85,7 +85,7 @@ def _schema_payload(schema: AnnotatedSchema) -> str:
     """Compact JSON view of the schema: metadata and statistics only.
 
     The only values that ever appear are `enum_values` of public/internal
-    low-cardinality columns (adapter-contract v1 §2.1) — never rows.
+    low-cardinality columns (proposed adapter-contract v1 §2.1, see STATE.md) — never rows.
     """
     return json.dumps(
         {

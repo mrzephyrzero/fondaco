@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""Adapter contract types — a transcription of design/adapter-contract.md §2 (v1).
+"""Adapter contract types — a transcription of design/adapter-contract.md §2.
 
 These shapes are frozen by the interface; do not extend them here without a
-new version of the document. The `comment`, `enum_values` and
-`business_description` fields carry customer-controlled text and are untrusted.
+new version of the document. The enum metadata below is the one exception in
+flight: it implements the v1 proposal filed in STATE.md under
+INTERFACE_CHANGE_REQUEST and is valid only once the maintainer approves it.
+The `comment`, `enum_values` and `business_description` fields carry
+customer-controlled text and are untrusted.
 
-v1 adds the only values the contract ever lets reach the planner:
+The proposed v1 adds the only values the contract would let reach the planner:
 `enum_values` — the closed set of codes a low-cardinality column holds — and
 the `business_description` that explains them. Both are refused at
 construction time on any column whose effective label (max of column and
@@ -21,7 +24,7 @@ from typing import Protocol
 
 ADAPTER_ERROR_KINDS = ("connection", "timeout", "limit_exceeded", "execution", "schema")
 
-# adapter-contract.md v1 §2.1 — semantic metadata limits.
+# Proposed adapter-contract.md v1 §2.1 — semantic metadata limits (see STATE.md).
 ENUM_MAX_VALUES = 30
 ENUM_MAX_VALUE_LENGTH = 64
 BUSINESS_DESCRIPTION_MAX_LENGTH = 1000
@@ -66,10 +69,10 @@ class Column:
     sql_type: str
     label: str  # one of the four levels; adapters default missing annotations to "restricted"
     comment: str = ""
-    # v1 §2.1: the complete, closed set of values of a public/internal column
+    # Proposed v1 §2.1: the complete, closed set of values of a public/internal column
     # with at most ENUM_MAX_VALUES distinct values; None when not provided.
     enum_values: tuple[str, ...] | None = None
-    # v1 §2.1: what those values mean, e.g. "01=Open, 02=In progress".
+    # Proposed v1 §2.1: what those values mean, e.g. "01=Open, 02=In progress".
     business_description: str | None = None
 
     def __post_init__(self) -> None:

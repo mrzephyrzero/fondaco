@@ -9,9 +9,10 @@ the max over the columns a template references anywhere (including filters),
 not over every column of every table read, so the strategy section says
 "columns", and warns that filtering on a restricted column counts as reading
 it. (2) The annotated schema may carry `enum_values` and
-`business_description` for public/internal low-cardinality columns
-(adapter-contract v1); v4 tells the planner to pick filter values from that
-list instead of guessing, which removes zero-row plans caused by a wrong code.
+`business_description` for public/internal low-cardinality columns (proposed
+adapter-contract v1, pending approval in STATE.md); v4 tells the planner to
+pick filter values from that list instead of guessing, which removes zero-row
+plans caused by a wrong code.
 The v3 lessons stay (EXTRACT is no longer mis-labelled by the AST analyser,
 but the half-open range and to_char guidance remain good practice).
 
