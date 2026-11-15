@@ -32,7 +32,8 @@ _SCHEMA = json.loads((Path(__file__).with_name("plan_schema.json")).read_text(en
 _SCHEMA_VALIDATOR = jsonschema.Draft202012Validator(_SCHEMA)
 
 _PLACEHOLDER_RE = re.compile(r"%\(([A-Za-z_][A-Za-z0-9_]*)\)s")
-_SELECT_RE = re.compile(r"^\s*SELECT\b", re.IGNORECASE)
+# plan-dsl v2 §3.1: SELECT, or WITH (non-recursive CTEs) followed by the query.
+_SELECT_RE = re.compile(r"^\s*(?:SELECT|WITH)\b", re.IGNORECASE)
 _FORBIDDEN_KEYWORD_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|COPY|CALL|DO|INTO)\b",
     re.IGNORECASE,
@@ -91,7 +92,9 @@ def _check_template(
     template: str = step["template"]
     errors_before = len(errors)
     if not _SELECT_RE.match(template):
-        errors.append(_err("template_not_select", step_path, "template must begin with SELECT"))
+        errors.append(
+            _err("template_not_select", step_path, "template must begin with SELECT or WITH")
+        )
     if ";" in template:
         errors.append(_err("multi_statement", step_path, "';' is forbidden in templates"))
     if "--" in template or "/*" in template:

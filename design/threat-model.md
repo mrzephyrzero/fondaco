@@ -19,7 +19,7 @@ with an HMAC chain and anchorable off-box.
 
 | Asset | Where it lives | Crossing controlled by |
 |---|---|---|
-| Row data | Postgres (read-only role) | Executor + adapter; never sent to the planner (sole, bounded exception: `enum_values` of public/internal columns with ≤ 30 values — pending INTERFACE_CHANGE_REQUEST on adapter-contract) |
+| Row data | Postgres (read-only role) | Executor + adapter; never sent to the planner (sole, bounded exception: `enum_values` of public/internal columns with ≤ 30 values, adapter-contract v1) |
 | Classification labels | Schema `COMMENT` annotations | Adapter `get_schema` → policy engine |
 | The plan | Planner output (untrusted) | Validator (schema + structural) then policy |
 | Egress decision | Boundary | `boundary/policy.py` (max-label ≤ clearance) |
@@ -69,6 +69,8 @@ is given).
 | 18 | Whole-row reference | `SELECT e FROM employees e`, `count(e)`, `(e).salary` — reads every column without naming one | `restricted` (fail closed, unresolved) | `policy._analyze`; `test_ast_policy_bypass.py` |
 | 19 | Values of a sensitive column smuggled into the planner prompt | an adapter (or annotation) puts `enum_values` / `business_description` on a confidential/restricted column, or on an internal column of a confidential table | Refused at contract construction (`SchemaMetadataError`); the planner re-checks the effective label before serializing, so a contract regression alone does not leak | `executor/adapters/contract.py`, `planner/client.py`; `tests/unit/test_enum_metadata.py` |
 | 20 | Audit log truncated or deleted under a running boundary | delete the tail, or the whole file / rows, while the app runs | Detected — the writer knows its head; the next operation halts with HTTP 503 and the halt is sticky. At startup, detected only against an anchor (`FONDACO_AUDIT_ANCHOR_FILE`) | `AuditLog.verify_chain`, `verify_against_anchor`; `test_audit.py`, `test_api_audit.py` |
+| 21 | Auto-approval abused to skip the human | misconfigure `FONDACO_AUTO_APPROVE_MAX_LABEL=restricted`, garbage values, a plan with an unresolved reference, or a tiny result used for inference | Off by default; `restricted` and malformed values fall back to `internal`; any unresolved reference, policy deny, budget shortfall or internal fault means `pending_approval`; results under `FONDACO_AUTO_APPROVE_MIN_ROWS` are held for a human before release. Every decision is audited under actor `auto-approval-policy` | `boundary/approval_policy.py`; `tests/unit/test_approval_policy.py` |
+| 22 | Discovery leaks sampled data or lowers a label | the proposal file, SQL comments or overlay carry sampled PII; an edited overlay marks a restricted column `public` or attaches values to it | Findings contain no sample values except `enum_values` of `internal` columns; the sample stays in memory (≤ 500 rows) and is dropped after classification; the overlay never sets labels and is applied only where the source's own label allows enum metadata | `executor/discovery/`, `executor/adapters/annotations.py`; `tests/unit/test_discovery.py`, `test_schema_annotations.py`, `tests/integration/test_discovery_postgres.py` |
 
 ## 5. Residual risks (accepted, documented)
 
@@ -136,10 +138,10 @@ is given).
   `unknown_relation` deny, and the audit chain became HMAC-sealed with
   anchoring. Attacks 15–20 were added; 1, 3–7, 13 and 13b were re-run against
   the new code and their rows updated. 13b moves from *not detected* to
-  *detected without the key*. No frozen interface was edited. The
-  `enum_values` / `business_description` metadata contradicts
-  `adapter-contract.md` v0 §2.1 and is filed in `STATE.md` as an
-  `INTERFACE_CHANGE_REQUEST` awaiting the maintainer's approval.
+  *detected without the key*. Two frozen interfaces changed afterwards,
+  each filed in `STATE.md` and approved by the maintainer: `adapter-contract.md`
+  v1 (`enum_values`, `business_description`) and `plan-dsl.md` v2 (`WITH`
+  templates, non-recursive, read-only).
 - No frozen interface required changing — CRIT-1 was an implementation defect in
   the label scanner, fixed within `boundary/policy.py`.
 - Feeds the README section "What this does NOT protect against".

@@ -127,6 +127,10 @@ def parse_template(template: str, dialect: str | None = None) -> exp.Expression:
 
     placeholders = 0
     for node in tree.walk():
+        if isinstance(node, exp.With) and node.args.get("recursive"):
+            # plan-dsl v2 §3.1: unbounded iteration is not a read the boundary
+            # can reason about or bound; refused outright.
+            raise SqlRejected("forbidden_construct", "WITH RECURSIVE is not allowed")
         if isinstance(node, _FORBIDDEN_NODES):
             raise SqlRejected("forbidden_construct", f"{type(node).__name__} is not allowed")
         if node.comments:

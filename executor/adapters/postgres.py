@@ -19,6 +19,7 @@ from datetime import date, datetime
 import psycopg
 
 from boundary.policy import query_label
+from executor.adapters.annotations import Annotations, apply_annotations
 from executor.adapters.contract import (
     AdapterError,
     AnnotatedSchema,
@@ -80,8 +81,11 @@ class PostgresAdapter:
         dsn: str,
         max_rows: int = 10_000,
         statement_timeout_s: int = 30,
+        annotations: Annotations | None = None,
     ) -> None:
         self._dsn = dsn
+        # Reviewed discovery output: enum metadata only, never labels.
+        self._annotations = annotations or {}
         self._max_rows = max_rows
         self._timeout_ms = statement_timeout_s * 1000
 
@@ -129,15 +133,14 @@ class PostgresAdapter:
         built = []
         for name, entry in tables.items():
             table_label, table_desc = _parse_label(entry["comment"])
-            built.append(
-                Table(
-                    name=name,
-                    label=table_label,
-                    columns=tuple(entry["columns"]),
-                    comment=table_desc,
-                    row_count=entry["row_count"],
-                )
+            table = Table(
+                name=name,
+                label=table_label,
+                columns=tuple(entry["columns"]),
+                comment=table_desc,
+                row_count=entry["row_count"],
             )
+            built.append(apply_annotations(table, self._annotations))
         return AnnotatedSchema(tables=tuple(built))
 
     def execute(self, step: dict) -> LabeledResult:

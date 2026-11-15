@@ -58,39 +58,24 @@ a code fix, not an interface change.
   code change, and a genuinely independent one would need a second labeling path
   that does not route through `query_label` — both out of scope.
 
-### `design/adapter-contract.md` v0 → v1 — OPEN, awaiting maintainer approval
+### `design/adapter-contract.md` v0 → v1 — approved and shipped
 
-- **Flaw / need:** §2.1 says `get_schema` "MUST NOT include row data or sample
-  values". The governance-firewall evolution (Step 1) asks for semantic ENUM
-  metadata on low-cardinality columns so the planner filters on codes that
-  exist instead of guessing (a wrong guess is a valid plan that returns zero
-  rows). Real values in the schema contradict §2.1 as written.
-- **Found by:** implementation of Step 1 (requested by the maintainer).
-- **Implemented, pending this approval:** `executor/adapters/contract.py`
-  `Column.enum_values` / `Column.business_description`, refused at
-  construction above `internal`; re-checked in `planner/client.py`. No adapter
-  populates them yet. The interface document itself was **not** edited.
-- **Proposed change (v1), for the maintainer to apply:**
-  - §2.1 signature: `Column(name, sql_type, label, comment, enum_values = None,
-    business_description = None)`.
-  - §2.1, replacing "MUST NOT include row data or sample values": *MUST NOT
-    include row data or sample values, with one exception.
-    `enum_values: list[str] | None` is the complete, closed set of distinct
-    values a column holds; `business_description: str | None` explains them
-    (e.g. "01=Open, 02=In progress"). Both MAY be set only when the column's
-    effective label — max(column, table), label-model.md §3 — is `public` or
-    `internal`; `enum_values` only for ≤ 30 distinct strings of ≤ 64
-    characters; `business_description` ≤ 1000 characters. Both are untrusted
-    text like `comment`. Consumers that forward the schema to an LLM MUST
-    re-check the effective label before serializing them.*
-  - Changelog entry for v1; nothing else in the contract changes, and a v0
-    `Column` remains a valid v1 `Column`.
+- **Flaw / need:** §2.1 said `get_schema` "MUST NOT include row data or sample
+  values". The governance-firewall evolution needs semantic ENUM metadata on
+  low-cardinality columns so the planner filters on codes that exist instead
+  of guessing.
+- **Found by:** implementation of Step 1, at the maintainer's request.
+- **Resolution:** approved by the maintainer on 2026-11-15. Shipped as **v1**:
+  `enum_values` / `business_description`, allowed only at effective label
+  ≤ `internal`, ≤ 30 values; refused at construction in
+  `executor/adapters/contract.py` and re-checked by the planner.
 
-### `design/plan-dsl.md` — `WITH` templates: not changed, noted
+### `design/plan-dsl.md` v1 → v2 — approved and shipped
 
-- **Observation:** the AST analyser resolves CTEs (`WITH … SELECT`), but §3.1
-  requires every template to *begin with* `SELECT`, so the validator still
-  rejects them. The policy engine handles CTEs correctly as defense in depth.
-- **Status:** no change requested. Admitting `WITH` would be a plan-dsl v2 and
-  needs the maintainer's explicit approval.
-
+- **Flaw / need:** §3.1 required templates to begin with `SELECT`, so CTEs
+  (`WITH … SELECT`) were rejected even though the AST analyser resolves them
+  column-precisely.
+- **Found by:** implementation of Step 1.
+- **Resolution:** approved by the maintainer on 2026-11-15. Shipped as **v2**:
+  `WITH` templates allowed when non-recursive and read-only; `WITH RECURSIVE`
+  refused by the parser. The envelope `dsl_version` stays `"v0"`.

@@ -26,6 +26,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from boundary.approval_policy import (
+    AUTO_APPROVAL_ACTOR,
+    ApprovalPolicy,
+    decide,
+    policy_from_env,
+    release_allowed,
+)
 from boundary.audit import (
     EVENT_APPROVAL,
     EVENT_EXECUTION_DIGEST,
@@ -47,6 +54,7 @@ from boundary.guards import (
     config_from_env,
 )
 from boundary.policy import PolicyDecision, UnknownRelation, evaluate, step_labels
+from executor.adapters.annotations import annotations_from_env
 from executor.adapters.contract import Adapter, schema_labels_dict
 from executor.runner import ExecutorError, RunResult, run_plan
 from planner.client import PlannerClient, PlannerError, client_from_env
@@ -80,6 +88,11 @@ class PlanRecord:
     result: RunResult | None = None
     error: str | None = None
     approver: str | None = None
+    # Risk-based approval (boundary/approval_policy.py): "auto" when the
+    # policy approved execution, and a result held back for a human because
+    # it was smaller than auto_approve_min_rows.
+    approval_mode: str = "human"
+    held_result: RunResult | None = None
 
 
 def create_app(
@@ -89,6 +102,7 @@ def create_app(
     clearance: str | None = None,
     audit_log: AuditLog | None = None,
     anchor_sink=None,
+    approval_policy: ApprovalPolicy | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Fondaco", description="Data stays home. Plans cross.")
     templates = Jinja2Templates(directory=str(_UI_DIR / "templates"))
@@ -105,6 +119,7 @@ def create_app(
         audit = audit_log_from_env()
     if anchor_sink is None:
         anchor_sink = anchor_sink_from_env()
+    approval = approval_policy if approval_policy is not None else policy_from_env()
 
     @app.exception_handler(AuditError)
     async def _audit_failure(request: Request, exc: AuditError):
@@ -125,12 +140,16 @@ def create_app(
     def session_id(request: Request) -> str:
         return request.cookies.get(SESSION_COOKIE) or str(uuid.uuid4())
 
+    # Read the reviewed annotation overlay at startup, so a broken file stops
+    # the app here instead of failing the first question.
+    annotations = annotations_from_env() if adapter is None else {}
+
     def get_adapter() -> Adapter:
         nonlocal adapter
         if adapter is None:
             from executor.adapters.postgres import PostgresAdapter
 
-            adapter = PostgresAdapter(os.environ["DATABASE_URL"])
+            adapter = PostgresAdapter(os.environ["DATABASE_URL"], annotations=annotations)
         return adapter
 
     demo_mode = False
@@ -149,6 +168,73 @@ def create_app(
 
     def get_planner():
         return planner
+
+    def execute(record: PlanRecord, plan_id: str, sid: str) -> HTMLResponse | None:
+        """Charge the budget, run the plan, audit the outcome.
+
+        Shared by human and automatic approval, so both cross exactly the same
+        guards. Returns a response only when the budget blocked execution;
+        otherwise the record's status/result/error carry the outcome.
+        """
+        # Query budget is charged BEFORE execution: an over-budget plan must
+        # never touch the database (fail closed, all-or-nothing).
+        n_query_steps = sum(1 for s in record.plan["steps"] if s["type"] == "query")
+        try:
+            budget_state = budget.consume(sid, n_query_steps)
+        except BudgetExceeded as exc:
+            record.status = FAILED
+            record.error = f"query budget exhausted ({exc.used}/{exc.limit})"
+            audit.append(
+                EVENT_GUARD_DECISION,
+                {
+                    "plan_id": plan_id,
+                    "guard": GUARD_QUERY_BUDGET,
+                    "triggered": True,
+                    "used": exc.used,
+                    "limit": exc.limit,
+                },
+                plan=record.plan,
+            )
+            return HTMLResponse(record.error, status_code=429)
+
+        try:
+            result = run_plan(record.plan, get_adapter(), k=guard_config.k)
+        except ExecutorError as exc:
+            record.status = FAILED
+            record.error = f"{exc.code}: {exc.detail}"
+            audit.append(
+                EVENT_EXECUTION_DIGEST,
+                {"plan_id": plan_id, "success": False, "error_code": exc.code},
+                plan=record.plan,
+            )
+            return None
+        record.status = EXECUTED
+        record.result = result
+        audit.append(
+            EVENT_GUARD_DECISION,
+            {
+                "plan_id": plan_id,
+                "guard": GUARD_K_THRESHOLD,
+                "triggered": result.suppressed_groups > 0,
+                "k": guard_config.k,
+                "suppressed_groups": result.suppressed_groups,
+                "budget_used": budget_state.used,
+                "budget_limit": budget_state.limit,
+            },
+            plan=record.plan,
+        )
+        audit.append(
+            EVENT_EXECUTION_DIGEST,
+            {
+                "plan_id": plan_id,
+                "success": True,
+                "digest": result.digest,
+                "label": result.label,
+                "row_count": len(result.rows),
+            },
+            plan=record.plan,
+        )
+        return None
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -248,15 +334,51 @@ def create_app(
             labels = {k: v.name.lower() for k, v in step_labels(plan, labels_dict).items()}
         except (KeyError, UnknownRelation):
             labels = {}
-        plans[plan_id] = PlanRecord(
+        record = PlanRecord(
             plan=plan,
             question=question,
             status=PENDING if decision.allow else DENIED,
             decision=decision,
             labels=labels,
         )
+        plans[plan_id] = record
+        sid = session_id(request)
+        if decision.allow and approval.auto_approve_enabled:
+            verdict = decide(approval, plan, decision, labels_dict, budget.state(sid).remaining)
+            audit.append(
+                EVENT_APPROVAL,
+                {
+                    "plan_id": plan_id,
+                    "decision": "auto_approve" if verdict.auto else "needs_human",
+                    "approver": AUTO_APPROVAL_ACTOR,
+                    "reasons": list(verdict.reasons),
+                },
+                actor=AUTO_APPROVAL_ACTOR,
+                plan=plan,
+            )
+            if verdict.auto:
+                record.approval_mode = "auto"
+                record.approver = AUTO_APPROVAL_ACTOR
+                if execute(record, plan_id, sid) is None and record.status == EXECUTED:
+                    if not release_allowed(approval, len(record.result.rows)):
+                        # Small results are where inference risk lives: hold it
+                        # back and hand the release decision to a human.
+                        record.held_result, record.result = record.result, None
+                        record.status = PENDING
+                        audit.append(
+                            EVENT_APPROVAL,
+                            {
+                                "plan_id": plan_id,
+                                "decision": "hold_for_human",
+                                "approver": AUTO_APPROVAL_ACTOR,
+                                "reasons": ["below_auto_approve_min_rows"],
+                                "min_rows": approval.auto_approve_min_rows,
+                            },
+                            actor=AUTO_APPROVAL_ACTOR,
+                            plan=plan,
+                        )
         response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
-        response.set_cookie(SESSION_COOKIE, session_id(request), httponly=True, samesite="lax")
+        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
         return response
 
     @app.get("/plans/{plan_id}", response_class=HTMLResponse)
@@ -298,66 +420,18 @@ def create_app(
         )
         record.approver = approver
 
-        # Query budget is charged BEFORE execution: an over-budget plan must
-        # never touch the database (fail closed, all-or-nothing).
-        n_query_steps = sum(1 for s in record.plan["steps"] if s["type"] == "query")
-        try:
-            budget_state = budget.consume(sid, n_query_steps)
-        except BudgetExceeded as exc:
-            record.status = FAILED
-            record.error = f"query budget exhausted ({exc.used}/{exc.limit})"
-            audit.append(
-                EVENT_GUARD_DECISION,
-                {
-                    "plan_id": plan_id,
-                    "guard": GUARD_QUERY_BUDGET,
-                    "triggered": True,
-                    "used": exc.used,
-                    "limit": exc.limit,
-                },
-                plan=record.plan,
-            )
-            response = HTMLResponse(record.error, status_code=429)
+        if record.held_result is not None:
+            # Already executed under auto-approval; the human releases it.
+            record.result, record.held_result = record.held_result, None
+            record.status = EXECUTED
+            response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
             response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
             return response
 
-        try:
-            result = run_plan(record.plan, get_adapter(), k=guard_config.k)
-        except ExecutorError as exc:
-            record.status = FAILED
-            record.error = f"{exc.code}: {exc.detail}"
-            audit.append(
-                EVENT_EXECUTION_DIGEST,
-                {"plan_id": plan_id, "success": False, "error_code": exc.code},
-                plan=record.plan,
-            )
-            return RedirectResponse(f"/plans/{plan_id}", status_code=303)
-        record.status = EXECUTED
-        record.result = result
-        audit.append(
-            EVENT_GUARD_DECISION,
-            {
-                "plan_id": plan_id,
-                "guard": GUARD_K_THRESHOLD,
-                "triggered": result.suppressed_groups > 0,
-                "k": guard_config.k,
-                "suppressed_groups": result.suppressed_groups,
-                "budget_used": budget_state.used,
-                "budget_limit": budget_state.limit,
-            },
-            plan=record.plan,
-        )
-        audit.append(
-            EVENT_EXECUTION_DIGEST,
-            {
-                "plan_id": plan_id,
-                "success": True,
-                "digest": result.digest,
-                "label": result.label,
-                "row_count": len(result.rows),
-            },
-            plan=record.plan,
-        )
+        blocked = execute(record, plan_id, sid)
+        if blocked is not None:
+            blocked.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
+            return blocked
         response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
         response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
         return response
