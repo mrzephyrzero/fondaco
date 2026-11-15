@@ -8,8 +8,11 @@ a human clicking approve, and approval cannot override a policy deny
 append-only audit log — question, plan, validation, policy decision,
 approval identity, execution digest. Row data never enters the log.
 
-V1 has no authentication: the approver identity is a self-declared form
-field (documented limitation; see DECISIONS.md and Phase 7/8).
+The approval UI is authenticated (api/auth.py): every UI page needs an
+approver session, every state-changing UI request also needs its CSRF token,
+and the approver written to the audit log is the authenticated name. The
+JSON API (/api/v1) is a separate surface with its own bearer token and no
+approve endpoint, so the agent's credential can never approve.
 """
 
 from __future__ import annotations
@@ -21,13 +24,24 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import psycopg
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from api.auth import (
+    CSRF_FIELD,
+    CSRF_HEADER,
+    UI_SESSION_COOKIE,
+    ApproverAuth,
+    Session,
+    cross_site,
+    safe_next,
+    secure_cookie_from_env,
+)
 from boundary.approval_policy import (
     AUTO_APPROVAL_ACTOR,
     ApprovalPolicy,
@@ -113,6 +127,7 @@ def create_app(
     audit_log: AuditLog | None = None,
     anchor_sink=None,
     approval_policy: ApprovalPolicy | None = None,
+    approver_auth: ApproverAuth | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Fondaco", description="Data stays home. Plans cross.")
     templates = Jinja2Templates(directory=str(_UI_DIR / "templates"))
@@ -130,9 +145,60 @@ def create_app(
     if anchor_sink is None:
         anchor_sink = anchor_sink_from_env()
     approval = approval_policy if approval_policy is not None else policy_from_env()
-    # Optional bearer token for /api/v1 (the MCP server sends it). Unset keeps
-    # V1's unauthenticated local-demo posture; see README.
+    # Optional bearer token for /api/v1 (the MCP server sends it). It never
+    # opens the approval UI, which has its own approver credentials.
     api_token = (os.environ.get("FONDACO_API_TOKEN") or "").strip()
+    # Fail closed at startup: malformed approver configuration, or an API
+    # token that doubles as an approver token, stops the app here.
+    if approver_auth is None:
+        approver_auth = ApproverAuth.from_env(api_token)
+    else:
+        approver_auth.check_separate_from(api_token)
+    ui_auth = approver_auth
+    cookie_secure = secure_cookie_from_env()
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):
+        response = await call_next(request)
+        # The approve button must not be clickable from inside another page.
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Not "no-referrer": that makes browsers send `Origin: null` on our own
+        # form posts. same-origin keeps paths in-site and sends nothing out.
+        response.headers["Referrer-Policy"] = "same-origin"
+        if not request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def ui_session(request: Request) -> Session | None:
+        return ui_auth.session(request.cookies.get(UI_SESSION_COOKIE))
+
+    def login_redirect(request: Request) -> RedirectResponse:
+        target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        return RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
+
+    async def ui_post_guard(request: Request) -> tuple[Session | None, Response | None]:
+        """Every state-changing UI request: session, same-site, CSRF token."""
+        current = ui_session(request)
+        if current is None:
+            return None, HTMLResponse("sign in required", status_code=401)
+        if cross_site(request.headers, request.headers.get("host", "")):
+            return None, HTMLResponse("cross-site request refused", status_code=403)
+        supplied = request.headers.get(CSRF_HEADER)
+        if supplied is None and "json" not in request.headers.get("content-type", ""):
+            supplied = (await request.form()).get(CSRF_FIELD)
+        if not ui_auth.csrf_ok(current, supplied if isinstance(supplied, str) else None):
+            return None, HTMLResponse("missing or invalid CSRF token", status_code=403)
+        return current, None
+
+    def budget_key(current: Session) -> str:
+        # In the UI the query budget follows the authenticated approver, so
+        # clearing cookies or opening a new browser no longer resets it.
+        return f"approver:{current.approver}"
+
+    def ui_context(current: Session, **values) -> dict:
+        return {"ui_user": current.approver, "csrf_token": current.csrf, **values}
 
     @app.exception_handler(AuditError)
     async def _audit_failure(request: Request, exc: AuditError):
@@ -251,6 +317,56 @@ def create_app(
         )
         return None
 
+    def set_ui_cookie(response: Response, request: Request, sid: str) -> None:
+        response.set_cookie(
+            UI_SESSION_COOKIE,
+            sid,
+            max_age=ui_auth.session_ttl_s,
+            httponly=True,
+            samesite="strict",
+            secure=cookie_secure or request.url.scheme == "https",
+            path="/",
+        )
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request, next: str = "/"):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"next": safe_next(next), "error": "", "bootstrap": ui_auth.bootstrap},
+        )
+
+    @app.post("/login")
+    async def login(request: Request):
+        if cross_site(request.headers, request.headers.get("host", "")):
+            return HTMLResponse("cross-site request refused", status_code=403)
+        form = await request.form()
+        token = form.get("token")
+        target = safe_next(form.get("next") if isinstance(form.get("next"), str) else None)
+        approver = ui_auth.authenticate(token.strip() if isinstance(token, str) else "")
+        if approver is None:
+            return templates.TemplateResponse(
+                request,
+                "login.html",
+                {"next": target, "error": "Unknown token.", "bootstrap": ui_auth.bootstrap},
+                status_code=401,
+            )
+        # A fresh session on every login; any previous one on this browser ends.
+        ui_auth.logout(request.cookies.get(UI_SESSION_COOKIE))
+        response = RedirectResponse(target, status_code=303)
+        set_ui_cookie(response, request, ui_auth.login(approver))
+        return response
+
+    @app.post("/logout")
+    async def logout(request: Request):
+        _, refused = await ui_post_guard(request)
+        if refused is not None:
+            return refused
+        ui_auth.logout(request.cookies.get(UI_SESSION_COOKIE))
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(UI_SESSION_COOKIE, path="/")
+        return response
+
     @app.get("/health")
     def health() -> dict[str, str]:
         dsn = os.environ.get("DATABASE_URL", "")
@@ -266,23 +382,24 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, error: str = ""):
+        current = ui_session(request)
+        if current is None:
+            return login_redirect(request)
         records = sorted(plans.items(), key=lambda kv: kv[1].created, reverse=True)
-        sid = session_id(request)
-        response = templates.TemplateResponse(
+        return templates.TemplateResponse(
             request,
             "index.html",
-            {
-                "plans": records,
-                "clearance": clearance,
-                "error": error,
-                "budget": budget.state(sid),
-                "k": guard_config.k,
-                "demo_mode": demo_mode,
-                "scripted": _scripted_questions() if demo_mode else [],
-            },
+            ui_context(
+                current,
+                plans=records,
+                clearance=clearance,
+                error=error,
+                budget=budget.state(budget_key(current)),
+                k=guard_config.k,
+                demo_mode=demo_mode,
+                scripted=_scripted_questions() if demo_mode else [],
+            ),
         )
-        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
-        return response
 
     def hold_if_small(record: PlanRecord, plan_id: str) -> None:
         """An auto-approved result below min_rows waits for a human release."""
@@ -417,19 +534,19 @@ def create_app(
 
     @app.post("/ask")
     async def ask(request: Request):
+        current, refused = await ui_post_guard(request)
+        if refused is not None:
+            return refused
         if "json" in request.headers.get("content-type", ""):
             question = str((await request.json()).get("question", "")).strip()
         else:
             question = str((await request.form()).get("question", "")).strip()
         if not question:
             return RedirectResponse("/?error=empty+question", status_code=303)
-        sid = session_id(request)
-        plan_id, error = propose(question, sid)
+        plan_id, error = propose(question, budget_key(current))
         if error is not None:
             return RedirectResponse(f"/?error=planner+failed:+{error['code']}", status_code=303)
-        response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
-        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
-        return response
+        return RedirectResponse(f"/plans/{plan_id}", status_code=303)
 
     # ── JSON API (/api/v1) — the surface the MCP server proxies ──────────
     # Deliberately no approve or reject endpoint: a client (an agent) can
@@ -554,23 +671,30 @@ def create_app(
 
     @app.get("/plans/{plan_id}", response_class=HTMLResponse)
     def plan_detail(request: Request, plan_id: str):
+        current = ui_session(request)
+        if current is None:
+            return login_redirect(request)
         record = plans.get(plan_id)
         if record is None:
             return HTMLResponse("plan not found", status_code=404)
         return templates.TemplateResponse(
             request,
             "plan.html",
-            {
-                "r": record,
-                "plan_id": plan_id,
-                "clearance": clearance,
-                "k": guard_config.k,
-                "demo_mode": demo_mode,
-            },
+            ui_context(
+                current,
+                r=record,
+                plan_id=plan_id,
+                clearance=clearance,
+                k=guard_config.k,
+                demo_mode=demo_mode,
+            ),
         )
 
     @app.post("/plans/{plan_id}/approve")
     async def approve(request: Request, plan_id: str):
+        current, refused = await ui_post_guard(request)
+        if refused is not None:
+            return refused
         record = plans.get(plan_id)
         if record is None:
             return HTMLResponse("plan not found", status_code=404)
@@ -578,9 +702,8 @@ def create_app(
             # Denied, rejected, executed, failed: nothing to approve — and a
             # policy deny can never be overridden by a human (label-model §5).
             return HTMLResponse(f"plan is {record.status}, not approvable", status_code=409)
-        form = await request.form()
-        approver = str(form.get("approver", "")).strip() or "anonymous"
-        sid = session_id(request)
+        # The authenticated approver, never a self-declared form field.
+        approver = current.approver
 
         require_intact_audit()
         audit.append(
@@ -595,27 +718,24 @@ def create_app(
             # Already executed under auto-approval; the human releases it.
             record.result, record.held_result = record.held_result, None
             record.status = EXECUTED
-            response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
-            response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
-            return response
+            return RedirectResponse(f"/plans/{plan_id}", status_code=303)
 
-        blocked = execute(record, plan_id, sid)
+        blocked = execute(record, plan_id, budget_key(current))
         if blocked is not None:
-            blocked.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
             return blocked
-        response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
-        response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
-        return response
+        return RedirectResponse(f"/plans/{plan_id}", status_code=303)
 
     @app.post("/plans/{plan_id}/reject")
     async def reject(request: Request, plan_id: str):
+        current, refused = await ui_post_guard(request)
+        if refused is not None:
+            return refused
         record = plans.get(plan_id)
         if record is None:
             return HTMLResponse("plan not found", status_code=404)
         if record.status != PENDING:
             return HTMLResponse(f"plan is {record.status}, not rejectable", status_code=409)
-        form = await request.form()
-        approver = str(form.get("approver", "")).strip() or "anonymous"
+        approver = current.approver
         require_intact_audit()
         record.status = REJECTED
         record.approver = approver
@@ -629,6 +749,9 @@ def create_app(
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_view(request: Request, event: str = "", plan: str = ""):
+        current = ui_session(request)
+        if current is None:
+            return login_redirect(request)
         verification = audit.verify()
         entries = audit.entries()
         if event:
@@ -639,14 +762,15 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "audit.html",
-            {
-                "entries": entries,
-                "verification": verification,
-                "event_filter": event,
-                "plan_filter": plan,
-                "demo_mode": demo_mode,
-                "key_id": audit.key_id,
-            },
+            ui_context(
+                current,
+                entries=entries,
+                verification=verification,
+                event_filter=event,
+                plan_filter=plan,
+                demo_mode=demo_mode,
+                key_id=audit.key_id,
+            ),
         )
 
     @app.get("/audit/head")
@@ -665,8 +789,16 @@ def create_app(
         )
 
     @app.post("/audit/anchor")
-    def audit_anchor():
-        """Export the verified head to the configured sink (call it from a scheduler)."""
+    async def audit_anchor(request: Request):
+        """Export the verified head to the configured sink (call it from a scheduler).
+
+        A scheduler authenticates with the API bearer token; a signed-in
+        approver may also trigger it from a browser (session + CSRF).
+        """
+        if not (api_token and api_authorized(request)):
+            _, refused = await ui_post_guard(request)
+            if refused is not None:
+                return refused
         if anchor_sink is None:
             return JSONResponse({"error": "no anchor sink configured"}, status_code=409)
         try:

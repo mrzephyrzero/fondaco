@@ -54,14 +54,15 @@
 {% if r.status == 'pending' %}
 <h3>Decision</h3>
 <form method="post" style="display:inline" action="/plans/{{ plan_id }}/approve">
-  <input type="text" name="approver" placeholder="your name" style="width:12rem">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button class="approve" type="submit">Approve &amp; execute</button>
 </form>
 <form method="post" style="display:inline" action="/plans/{{ plan_id }}/reject">
-  <input type="hidden" name="approver" value="">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button class="reject" type="submit">Reject</button>
 </form>
-<p class="muted">Nothing runs until a human approves. Rejected plans are never executed.</p>
+<p class="muted">Nothing runs until a human approves. Rejected plans are never executed.
+  You decide as <strong>{{ ui_user }}</strong>; that name goes to the audit log.</p>
 {% endif %}
 
 {% if r.status == 'failed' %}<p class="error">Execution failed: {{ r.error }}</p>{% endif %}

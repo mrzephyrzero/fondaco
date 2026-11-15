@@ -19,6 +19,7 @@ from executor.adapters.contract import (
     Table,
 )
 from planner.client import PlannerClient
+from tests.ui_auth import sign_in
 from tests.unit.conftest import VALID_PLAN
 from tests.unit.test_planner import SequencedLLM
 
@@ -91,7 +92,7 @@ def _mk(tmp_path, *llm_texts):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    return TestClient(app), adapter, tmp_path / "audit.jsonl"
+    return sign_in(TestClient(app)), adapter, tmp_path / "audit.jsonl"
 
 
 def _good_steps() -> str:
@@ -268,7 +269,7 @@ def test_execution_failure_marks_plan_failed_and_is_audited(tmp_path):
     app = create_app(
         adapter=failing, planner=planner, audit_path=str(audit_path), clearance="internal"
     )
-    client = TestClient(app)
+    client = sign_in(TestClient(app))
     plan_id = _ask(client)
 
     done = client.post(f"/plans/{plan_id}/approve", data={"approver": "alice"})
