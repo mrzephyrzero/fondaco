@@ -32,6 +32,8 @@ services:
       FONDACO_AUTO_APPROVE_ENABLED: ${FONDACO_AUTO_APPROVE_ENABLED:-false}
       FONDACO_AUTO_APPROVE_MAX_LABEL: ${FONDACO_AUTO_APPROVE_MAX_LABEL:-internal}
       FONDACO_AUTO_APPROVE_MIN_ROWS: ${FONDACO_AUTO_APPROVE_MIN_ROWS:-10}
+      # Bearer token for /api/v1 (the MCP server's surface); unset = no token.
+      FONDACO_API_TOKEN: ${FONDACO_API_TOKEN:-}
     volumes:
       - audit_data:/data
     extra_hosts:

@@ -10,7 +10,8 @@ COPY boundary ./boundary
 COPY planner ./planner
 COPY executor ./executor
 
-RUN pip install --no-cache-dir .
+# The image also carries the MCP server (`fondaco-mcp`), run as its own process.
+RUN pip install --no-cache-dir ".[mcp]"
 
 RUN mkdir -p /data
 EXPOSE 8000

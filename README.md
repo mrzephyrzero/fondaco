@@ -173,6 +173,54 @@ proposal: the Data Owner reviews `labels.sql` before applying it, and may point
 `FONDACO_SCHEMA_ANNOTATIONS` at the reviewed JSON so the planner learns what
 codes like `01`/`02` mean. The overlay never changes a label.
 
+## Agents over MCP: `fondaco-mcp`
+
+Fondaco also speaks the Model Context Protocol, so an agent (Claude, an IDE
+assistant, your own) can work through the boundary instead of around it:
+
+```bash
+pip install 'fondaco[mcp]'
+fondaco-mcp --api-url http://localhost:8000                       # stdio
+fondaco-mcp --transport streamable-http --host 127.0.0.1 --port 8765
+```
+
+| Tool | What it does |
+|---|---|
+| `fondaco_list_schemas` | The annotated schema the planner sees: labels, types, comments, enum codes. Never rows |
+| `fondaco_propose_plan` | A question, optionally with the agent's own plan steps. Validated, policy-checked, audited; nothing runs |
+| `fondaco_get_plan_status` | `pending_approval`, `auto_approved`, `executed`, `denied`, … and the result once released |
+| `fondaco_execute_plan` | Runs an auto-approved plan, or returns the result a human already approved |
+
+The MCP server is a separate process that only calls the boundary's JSON API
+(`/api/v1`): it holds no database credentials, no audit key and no state. There
+is no approve tool. A plan that needs a human comes back with an `approval_url`
+for the Fondaco UI; the agent can only wait. Agent-written steps are treated
+exactly like LLM output: same envelope, same validator, boundary-assigned plan
+id. Set `FONDACO_API_TOKEN` on both sides to require a bearer token on
+`/api/v1`. The token protects only `/api/v1`. The approval UI still has no
+authentication in V1, so keep it on a network agents cannot reach.
+
+## Sources: Postgres, SQL Server, BigQuery
+
+`FONDACO_ADAPTER` selects the source (`postgres` by default). Each adapter is
+read-only by construction and by configuration, and `FONDACO_SQL_DIALECT` must
+name its grammar (`postgres`, `tsql`, `bigquery`), or the app refuses to start.
+
+- **SQL Server** (`pip install 'fondaco[sqlserver]'`, pyodbc): the connection
+  string is forced to `ApplicationIntent=ReadOnly`, opened read-only, with a
+  query timeout and `LOCK_TIMEOUT`. Labels come from `MS_Description` extended
+  properties (`label:internal …`). The login's default schema must be the
+  exposed schema, which is checked on every connection.
+- **BigQuery** (`pip install 'fondaco[bigquery]'`): every statement is dry-run
+  first and runs only if BigQuery itself reports a `SELECT`. Each job carries
+  `maximum_bytes_billed` (`FONDACO_BQ_MAX_BYTES_BILLED`, default 1 GB) and
+  `job_timeout_ms`. Labels come from table and column descriptions. Only tables
+  in one dataset are exposed; views and external tables are not.
+
+Grant each adapter a read-only identity anyway (SELECT-only login;
+`bigquery.dataViewer` + `bigquery.jobUser`). The adapter checks are the second
+line of defense.
+
 ## What this does NOT protect against
 
 Fondaco is a reference architecture; this list is deliberately honest. The full
@@ -259,8 +307,8 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
 | `design/` | Frozen interfaces (plan DSL, label model, adapter contract) + threat model |
 | `boundary/` | Security core: `validator`, `policy` (+ `sql_ast` parser front end), `guards`, `audit` |
 | `planner/` | Blind LLM planner (`client`) + the demo fixture planner (`demo`) + prompts |
-| `executor/` | Deterministic plan runner + `adapters/` (Postgres) + `discovery/` (`fondaco discover`) |
-| `api/` | FastAPI app + Jinja/htmx approval & audit UI |
+| `executor/` | Deterministic plan runner + `adapters/` (Postgres, SQL Server, BigQuery) + `discovery/` (`fondaco discover`) |
+| `api/` | FastAPI app + Jinja/htmx approval & audit UI + JSON API v1 + MCP server (`mcp_server`) |
 | `demo/` | Synthetic dataset loader + the 10 scripted `scenarios.md` |
 | `tests/` | `unit/`, `integration/`, `adversarial/` |
 
