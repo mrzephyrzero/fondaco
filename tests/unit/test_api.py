@@ -234,7 +234,7 @@ def test_audit_view_shows_chain_and_filters(tmp_path):
     client.post(f"/plans/{plan_id}/approve", data={"approver": "alice"})
 
     page = client.get("/audit")
-    assert "hash chain verified" in page.text
+    assert "HMAC chain verified" in page.text
     assert plan_id in page.text
 
     # The dropdown lists every event name; assert on rendered table cells instead.

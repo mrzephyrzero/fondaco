@@ -22,7 +22,7 @@ from pathlib import Path
 
 import psycopg
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -34,7 +34,10 @@ from boundary.audit import (
     EVENT_POLICY_DECISION,
     EVENT_QUESTION_RECEIVED,
     EVENT_VALIDATION_RESULT,
+    AuditError,
     AuditLog,
+    anchor_sink_from_env,
+    audit_log_from_env,
 )
 from boundary.guards import (
     GUARD_K_THRESHOLD,
@@ -43,7 +46,7 @@ from boundary.guards import (
     QueryBudget,
     config_from_env,
 )
-from boundary.policy import PolicyDecision, evaluate, step_labels
+from boundary.policy import PolicyDecision, UnknownRelation, evaluate, step_labels
 from executor.adapters.contract import Adapter, schema_labels_dict
 from executor.runner import ExecutorError, RunResult, run_plan
 from planner.client import PlannerClient, PlannerError, client_from_env
@@ -84,13 +87,37 @@ def create_app(
     planner: PlannerClient | None = None,
     audit_path: str | None = None,
     clearance: str | None = None,
+    audit_log: AuditLog | None = None,
+    anchor_sink=None,
 ) -> FastAPI:
     app = FastAPI(title="Fondaco", description="Data stays home. Plans cross.")
     templates = Jinja2Templates(directory=str(_UI_DIR / "templates"))
     app.mount("/static", StaticFiles(directory=str(_UI_DIR / "static")), name="static")
 
     clearance = clearance or os.environ.get("FONDACO_EGRESS_CLEARANCE", "internal")
-    audit = AuditLog(audit_path or os.environ.get("FONDACO_AUDIT_LOG", "./audit.jsonl"))
+    # Fail closed at startup: no HMAC key, an unverifiable log, or a log that
+    # no longer contains the latest external anchor → the app does not start.
+    if audit_log is not None:
+        audit = audit_log
+    elif audit_path is not None:
+        audit = AuditLog(audit_path)
+    else:
+        audit = audit_log_from_env()
+    if anchor_sink is None:
+        anchor_sink = anchor_sink_from_env()
+
+    @app.exception_handler(AuditError)
+    async def _audit_failure(request: Request, exc: AuditError):
+        # Any failure to record a crossing halts the crossing. The message is
+        # the module's own text (no payload content, no key material).
+        return HTMLResponse(f"boundary halted: audit log unavailable ({exc})", status_code=503)
+
+    def require_intact_audit() -> None:
+        """Every boundary operation starts by re-verifying the whole chain."""
+        result = audit.verify_chain()
+        if not result.ok:
+            raise AuditError(f"chain broken at seq {result.bad_seq}: {result.reason}")
+
     guard_config = config_from_env()
     budget = QueryBudget(guard_config.query_budget)
     plans: dict[str, PlanRecord] = {}
@@ -165,6 +192,7 @@ def create_app(
         if not question:
             return RedirectResponse("/?error=empty+question", status_code=303)
 
+        require_intact_audit()
         audit.append(EVENT_QUESTION_RECEIVED, {"question": question})
         working_adapter = get_adapter()
         schema = working_adapter.get_schema()
@@ -188,6 +216,7 @@ def create_app(
                 "prompt_version": trace.prompt_version,
                 "attempts": len(trace.attempts),
             },
+            plan=plan,
         )
         for i, attempt in enumerate(trace.attempts):
             audit.append(
@@ -201,6 +230,7 @@ def create_app(
                         {e.code for e in attempt.validation.errors} if attempt.validation else []
                     ),
                 },
+                plan=plan,
             )
 
         decision = evaluate(plan, labels_dict, clearance)
@@ -212,10 +242,11 @@ def create_app(
                 "reason_code": decision.reason_code,
                 "plan_label": decision.plan_label,
             },
+            plan=plan,
         )
         try:
             labels = {k: v.name.lower() for k, v in step_labels(plan, labels_dict).items()}
-        except KeyError:
+        except (KeyError, UnknownRelation):
             labels = {}
         plans[plan_id] = PlanRecord(
             plan=plan,
@@ -258,8 +289,12 @@ def create_app(
         approver = str(form.get("approver", "")).strip() or "anonymous"
         sid = session_id(request)
 
+        require_intact_audit()
         audit.append(
-            EVENT_APPROVAL, {"plan_id": plan_id, "decision": "approve", "approver": approver}
+            EVENT_APPROVAL,
+            {"plan_id": plan_id, "decision": "approve", "approver": approver},
+            actor=approver,
+            plan=record.plan,
         )
         record.approver = approver
 
@@ -280,6 +315,7 @@ def create_app(
                     "used": exc.used,
                     "limit": exc.limit,
                 },
+                plan=record.plan,
             )
             response = HTMLResponse(record.error, status_code=429)
             response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
@@ -293,6 +329,7 @@ def create_app(
             audit.append(
                 EVENT_EXECUTION_DIGEST,
                 {"plan_id": plan_id, "success": False, "error_code": exc.code},
+                plan=record.plan,
             )
             return RedirectResponse(f"/plans/{plan_id}", status_code=303)
         record.status = EXECUTED
@@ -308,6 +345,7 @@ def create_app(
                 "budget_used": budget_state.used,
                 "budget_limit": budget_state.limit,
             },
+            plan=record.plan,
         )
         audit.append(
             EVENT_EXECUTION_DIGEST,
@@ -318,6 +356,7 @@ def create_app(
                 "label": result.label,
                 "row_count": len(result.rows),
             },
+            plan=record.plan,
         )
         response = RedirectResponse(f"/plans/{plan_id}", status_code=303)
         response.set_cookie(SESSION_COOKIE, sid, httponly=True, samesite="lax")
@@ -332,10 +371,14 @@ def create_app(
             return HTMLResponse(f"plan is {record.status}, not rejectable", status_code=409)
         form = await request.form()
         approver = str(form.get("approver", "")).strip() or "anonymous"
+        require_intact_audit()
         record.status = REJECTED
         record.approver = approver
         audit.append(
-            EVENT_APPROVAL, {"plan_id": plan_id, "decision": "reject", "approver": approver}
+            EVENT_APPROVAL,
+            {"plan_id": plan_id, "decision": "reject", "approver": approver},
+            actor=approver,
+            plan=record.plan,
         )
         return RedirectResponse(f"/plans/{plan_id}", status_code=303)
 
@@ -357,8 +400,36 @@ def create_app(
                 "event_filter": event,
                 "plan_filter": plan,
                 "demo_mode": demo_mode,
+                "key_id": audit.key_id,
             },
         )
+
+    @app.get("/audit/head")
+    def audit_head():
+        """The current verified head — what an external monitor should record."""
+        verification = audit.verify_chain()
+        head = audit.head() if verification.ok else None
+        return JSONResponse(
+            {
+                "verified": verification.ok,
+                "entries": verification.entries,
+                "reason": verification.reason,
+                "head": head.to_dict() if head else None,
+            },
+            status_code=200 if verification.ok else 503,
+        )
+
+    @app.post("/audit/anchor")
+    def audit_anchor():
+        """Export the verified head to the configured sink (call it from a scheduler)."""
+        if anchor_sink is None:
+            return JSONResponse({"error": "no anchor sink configured"}, status_code=409)
+        try:
+            head = audit.anchor(anchor_sink)
+        except AuditError as exc:
+            status = 503 if audit.halted else 502
+            return JSONResponse({"error": str(exc)}, status_code=status)
+        return JSONResponse({"anchored": head.to_dict() if head else None})
 
     return app
 

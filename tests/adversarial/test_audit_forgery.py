@@ -1,95 +1,155 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""Documented limitation of the audit chain: it is tamper-evident, not tamper-proof.
+"""Wholesale audit forgery (threat model 13b) against the HMAC chain.
 
-The tests in tests/unit/test_audit.py cover *partial* tampering — editing one
-entry, deleting a middle entry, reordering, truncating mid-file. All of those
-break verification, because the surviving entries still carry hashes computed
-over the original content.
+Under the v0 chain (bare SHA-256, no key) anyone with write access who knew
+the algorithm could discard the log and emit a fresh, internally consistent
+history, and `verify()` returned ok. This file used to pin that limitation.
+It now pins its closure, and states precisely where the closure ends:
 
-This file records the complementary case. `boundary/audit.py` chains entries
-with a bare SHA-256 over canonical JSON: no key, no signature, no external
-anchor for the head. An attacker with write access to the log file and
-knowledge of the algorithm — which is public, in this repository — can discard
-the file and emit a fresh, internally consistent chain saying whatever they
-like. `verify()` recomputes exactly the same function over the forged bytes
-and returns ok.
+  * WITHOUT the key, a rewrite — even one that reproduces the exact format,
+    sequence numbers and chaining — fails verification, and the log refuses
+    to open, so the boundary does not resume on top of it.
+  * WITH the key (a compromised host that holds `FONDACO_AUDIT_HMAC_KEY`), a
+    rewrite verifies again: a MAC is only as secret as its key. What still
+    catches it is an external anchor exported before the rewrite.
+  * Tail truncation and outright deletion are not detectable from the log
+    alone, keyed or not; an anchor catches both.
 
-This is documentation of a known limitation, not a bug report. Nothing here
-asserts that the behaviour should change. The hash chain buys detection of
-edits made by someone who does not rewrite the whole file; closing the gap
-needs a key (HMAC/signature) or an off-box anchor for the head hash, both of
-which are out of V1 scope. The forgery below deliberately reimplements the
-hashing with plain stdlib rather than importing the module's helpers, because
-that is the point: no secret is involved, only published arithmetic.
+The forger below reimplements the sealing with plain stdlib, as an attacker
+reading this repository would.
 """
 
 import hashlib
+import hmac
 import json
+
+import pytest
 
 from boundary.audit import (
     EVENT_POLICY_DECISION,
     EVENT_QUESTION_RECEIVED,
-    GENESIS_HASH,
+    GENESIS_MAC,
+    AuditError,
     AuditLog,
+    FileAnchorSink,
+    Keyring,
 )
 
+REAL_KEY = b"adversarial-real-audit-key-0123456789"
+GUESSED_KEY = b"attacker-guess-of-the-key-0000000000"
+RING = Keyring("k1", {"k1": REAL_KEY})
 
-def _forge(path, entries: list[tuple[str, dict]]) -> None:
+
+def _forge(path, entries: list[tuple[str, dict]], key: bytes, key_id: str = "k1") -> None:
     """Overwrite the log with a self-consistent chain built from scratch."""
-    prev_hash = GENESIS_HASH
+    prev_mac = GENESIS_MAC
     lines = []
     for seq, (event, payload) in enumerate(entries):
         entry = {
             "seq": seq,
             "ts": "2026-01-01T00:00:00+00:00",
+            "actor": "boundary",
             "event": event,
+            "plan_sha256": None,
             "payload": payload,
-            "prev_hash": prev_hash,
+            "prev_mac": prev_mac,
+            "key_id": key_id,
         }
         body = json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()
-        entry["hash"] = hashlib.sha256(body).hexdigest()
-        prev_hash = entry["hash"]
+        entry["mac"] = hmac.new(key, body, hashlib.sha256).hexdigest()
+        prev_mac = entry["mac"]
         lines.append(json.dumps(entry, sort_keys=True, separators=(",", ":")))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_full_rewrite_with_recomputed_hashes_passes_verify(tmp_path):
-    path = tmp_path / "audit.jsonl"
-    log = AuditLog(path)
+FORGED_HISTORY = [
+    (EVENT_QUESTION_RECEIVED, {"question": "monthly revenue by region"}),
+    (EVENT_POLICY_DECISION, {"allow": True, "reason_code": "allow"}),
+]
+
+
+def _real_log(path) -> AuditLog:
+    log = AuditLog(path, RING)
     log.append(EVENT_QUESTION_RECEIVED, {"question": "list every customer email"})
     log.append(EVENT_POLICY_DECISION, {"allow": False, "reason_code": "label_exceeds_clearance"})
-    assert log.verify().ok is True
-
-    # The whole file is replaced: the denial becomes an approval and the
-    # question it denied never happened. No entry from the real log survives.
-    _forge(
-        path,
-        [
-            (EVENT_QUESTION_RECEIVED, {"question": "monthly revenue by region"}),
-            (EVENT_POLICY_DECISION, {"allow": True, "reason_code": "allow"}),
-        ],
-    )
-
-    result = AuditLog(path).verify()
-    assert result.ok is True
-    assert result.entries == 2
-
-    # The forged history is what a reader now sees, and it verifies clean.
-    replayed = AuditLog(path).entries()
-    assert replayed[0]["payload"]["question"] == "monthly revenue by region"
-    assert replayed[1]["payload"]["allow"] is True
+    return log
 
 
-def test_forged_log_accepts_further_appends(tmp_path):
-    # The constructor refuses to extend a log that fails verification. A forged
-    # log does not fail verification, so normal operation resumes on top of it
-    # and the seam is not visible from the file.
+def test_full_rewrite_without_the_key_fails_verification(tmp_path):
     path = tmp_path / "audit.jsonl"
-    AuditLog(path).append(EVENT_QUESTION_RECEIVED, {"question": "original"})
-    _forge(path, [(EVENT_QUESTION_RECEIVED, {"question": "substituted"})])
+    log = _real_log(path)
+    _forge(path, FORGED_HISTORY, key=GUESSED_KEY)
+    result = log.verify()
+    assert result.ok is False
+    assert result.bad_seq == 0
+    assert result.reason == "mac mismatch"
 
-    log = AuditLog(path)
-    log.append(EVENT_POLICY_DECISION, {"allow": True, "reason_code": "allow"})
-    assert log.verify().ok is True
-    assert log.entries()[0]["payload"]["question"] == "substituted"
+
+def test_rewrite_with_the_old_unkeyed_algorithm_fails_verification(tmp_path):
+    # The exact v0 attack: SHA-256 over the body, no key at all.
+    path = tmp_path / "audit.jsonl"
+    _real_log(path)
+    prev = GENESIS_MAC
+    lines = []
+    for seq, (event, payload) in enumerate(FORGED_HISTORY):
+        entry = {
+            "seq": seq, "ts": "t", "actor": "boundary", "event": event,
+            "plan_sha256": None, "payload": payload, "prev_mac": prev, "key_id": "k1",
+        }  # fmt: skip
+        entry["mac"] = hashlib.sha256(
+            json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        prev = entry["mac"]
+        lines.append(json.dumps(entry, sort_keys=True, separators=(",", ":")))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(AuditError, match="mac mismatch"):
+        AuditLog(path, RING)
+
+
+def test_forged_log_refuses_further_appends(tmp_path):
+    # v0: a forged log verified, so normal operation resumed on top of it and
+    # the seam was invisible. Now the boundary refuses to open it at all.
+    path = tmp_path / "audit.jsonl"
+    _real_log(path)
+    _forge(path, FORGED_HISTORY, key=GUESSED_KEY)
+    with pytest.raises(AuditError, match="unverifiable"):
+        AuditLog(path, RING)
+
+
+def test_forged_entry_under_an_invented_key_id_is_refused(tmp_path):
+    # Claiming a key id the keyring does not hold does not help either.
+    path = tmp_path / "audit.jsonl"
+    _real_log(path)
+    _forge(path, FORGED_HISTORY, key=GUESSED_KEY, key_id="attacker")
+    with pytest.raises(AuditError, match="unknown key id"):
+        AuditLog(path, RING)
+
+
+def test_rewrite_with_a_stolen_key_verifies_but_the_anchor_catches_it(tmp_path):
+    # The limit of the property, stated so it is not over-read: a MAC is only
+    # as secret as its key. A host compromise that reads the key can reseal a
+    # forged history and `verify()` passes. An anchor exported to a place the
+    # attacker cannot rewrite is what still exposes it.
+    path = tmp_path / "audit.jsonl"
+    log = _real_log(path)
+    anchors = FileAnchorSink(tmp_path / "offbox-anchors.jsonl")
+    log.anchor(anchors)
+
+    _forge(path, FORGED_HISTORY + [(EVENT_QUESTION_RECEIVED, {"q": "pad"})], key=REAL_KEY)
+    assert AuditLog(path, RING).verify().ok is True  # the stolen key reseals it
+
+    with pytest.raises(AuditError, match="does not match anchor"):
+        AuditLog(path, RING, anchor=anchors.latest())
+
+
+def test_tail_truncation_needs_an_anchor(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    log = _real_log(path)
+    anchors = FileAnchorSink(tmp_path / "anchors.jsonl")
+    log.anchor(anchors)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(lines[:1]) + "\n", encoding="utf-8")
+    assert AuditLog(path, RING).verify().ok is True  # undetectable from the file
+    with pytest.raises(AuditError):
+        AuditLog(path, RING, anchor=anchors.latest())
