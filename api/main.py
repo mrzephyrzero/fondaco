@@ -58,6 +58,7 @@ from boundary.guards import (
 from boundary.policy import PolicyDecision, UnknownRelation, evaluate, step_labels
 from executor.adapters.annotations import annotations_from_env
 from executor.adapters.contract import Adapter, schema_labels_dict
+from executor.adapters.factory import adapter_from_env, adapter_kind, check_dialect
 from executor.runner import ExecutorError, RunResult, run_plan
 from planner.client import (
     PlannerClient,
@@ -155,13 +156,15 @@ def create_app(
     # Read the reviewed annotation overlay at startup, so a broken file stops
     # the app here instead of failing the first question.
     annotations = annotations_from_env() if adapter is None else {}
+    if adapter is None:
+        # Fail closed at startup: unknown adapter, or a boundary dialect that
+        # differs from the grammar the selected database speaks.
+        check_dialect(adapter_kind())
 
     def get_adapter() -> Adapter:
         nonlocal adapter
         if adapter is None:
-            from executor.adapters.postgres import PostgresAdapter
-
-            adapter = PostgresAdapter(os.environ["DATABASE_URL"], annotations=annotations)
+            adapter = adapter_from_env(annotations)
         return adapter
 
     demo_mode = False
