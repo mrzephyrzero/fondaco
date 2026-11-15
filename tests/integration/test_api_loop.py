@@ -37,6 +37,7 @@ def test_full_loop_against_postgres(adapter, tmp_path):
 
     from api.main import create_app
     from planner.client import PlannerClient
+    from tests.ui_auth import sign_in
     from tests.unit.test_planner import SequencedLLM
 
     llm = SequencedLLM(PLAN_STEPS)
@@ -48,7 +49,7 @@ def test_full_loop_against_postgres(adapter, tmp_path):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    client = TestClient(app)
+    client = sign_in(TestClient(app), "integration")
 
     response = client.post("/ask", data={"question": "Orders per region since October 2025?"})
     plan_id = str(response.url).rsplit("/plans/", 1)[1]

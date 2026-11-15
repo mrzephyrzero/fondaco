@@ -18,6 +18,7 @@ from boundary.approval_policy import (
 )
 from boundary.policy import Label, evaluate
 from planner.client import PlannerClient
+from tests.ui_auth import sign_in
 from tests.unit.conftest import VALID_PLAN
 from tests.unit.test_api import CountingAdapter, _ask, _good_steps, _restricted_steps
 from tests.unit.test_planner import SequencedLLM
@@ -179,7 +180,7 @@ def _client(tmp_path, *llm, policy=ON):
         clearance="internal",
         approval_policy=policy,
     )
-    return TestClient(app), adapter, tmp_path / "audit.jsonl"
+    return sign_in(TestClient(app), "dana"), adapter, tmp_path / "audit.jsonl"
 
 
 def _entries(path):

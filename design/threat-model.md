@@ -25,6 +25,8 @@ with an HMAC chain and anchorable off-box.
 | Egress decision | Boundary | `boundary/policy.py` (max-label ≤ clearance) |
 | Audit trail | `audit.jsonl` or `fondaco_audit.fondaco_audit_log` (HMAC chain) | `boundary/audit.py` (append-only, keyed, anchored) |
 | Audit HMAC key | `FONDACO_AUDIT_HMAC_KEY` (deployment secret) | Never logged, never in the repository (the compose dev key excepted) |
+| Approval decision | Approval UI (`/plans/{id}/approve`) | Approver sign-in (`api/auth.py`): personal token → server-side session; CSRF token on every POST; audit actor = signed-in name |
+| Approver tokens | Held by each approver; only SHA-256 hashes in `FONDACO_APPROVERS` | Never logged, except the one-time bootstrap token when no approver is configured |
 
 Trust boundary: everything the LLM produces is hostile input. Everything under
 `/boundary` is the trusted computing base and is written to fail closed.
@@ -39,6 +41,11 @@ Trust boundary: everything the LLM produces is hostile input. Everything under
   text in column comments (which are planner-visible by design).
 - **Curious approved user** — has legitimate approval rights and probes the
   aggregate/inference channel.
+- **Agent with HTTP reach** — an MCP client or any process that can reach the
+  boundary over the network, possibly holding the `/api/v1` bearer token, and
+  tries to approve its own plans through the UI; or a web page in an
+  approver's browser that tries to post to the UI on their behalf (CSRF,
+  clickjacking).
 
 Out of scope by design: a **malicious approver** (approval is the trust anchor),
 and an attacker with database credentials (the boundary assumes the DB role it
@@ -71,8 +78,9 @@ is given).
 | 20 | Audit log truncated or deleted under a running boundary | delete the tail, or the whole file / rows, while the app runs | Detected — the writer knows its head; the next operation halts with HTTP 503 and the halt is sticky. At startup, detected only against an anchor (`FONDACO_AUDIT_ANCHOR_FILE`) | `AuditLog.verify_chain`, `verify_against_anchor`; `test_audit.py`, `test_api_audit.py` |
 | 21 | Auto-approval abused to skip the human | misconfigure `FONDACO_AUTO_APPROVE_MAX_LABEL=restricted`, garbage values, a plan with an unresolved reference, or a tiny result used for inference | Off by default; `restricted` and malformed values fall back to `internal`; any unresolved reference, policy deny, budget shortfall or internal fault means `pending_approval`; results under `FONDACO_AUTO_APPROVE_MIN_ROWS` are held for a human before release. Every decision is audited under actor `auto-approval-policy` | `boundary/approval_policy.py`; `tests/unit/test_approval_policy.py` |
 | 22 | Discovery leaks sampled data or lowers a label | the proposal file, SQL comments or overlay carry sampled PII; an edited overlay marks a restricted column `public` or attaches values to it | Findings contain no sample values except `enum_values` of `internal` columns; the sample stays in memory (≤ 500 rows) and is dropped after classification; the overlay never sets labels and is applied only where the source's own label allows enum metadata | `executor/discovery/`, `executor/adapters/annotations.py`; `tests/unit/test_discovery.py`, `test_schema_annotations.py`, `tests/integration/test_discovery_postgres.py` |
-| 23 | Agent over MCP approves its own plan, or smuggles a plan past the validator | call an approve tool; POST a plan with a chosen `plan_id`, a write, a second statement, an unknown step type; overwrite a plan a human is reviewing; path tricks in `plan_id` | No approve tool and no approve endpoint in `/api/v1`. Agent steps go through the same envelope and validator as LLM output, and the boundary assigns the id (`uuid4`), so an existing record cannot be overwritten. Invalid plans are refused (422) and audited. `plan_id` is format-checked before any request. The MCP process holds no DB credentials. **Residual:** the V1 approval UI is unauthenticated, so an agent with general HTTP access to it could click approve. Keep the UI off the agent's network. `FONDACO_API_TOKEN` guards only `/api/v1` | `api/mcp_server.py`, `api/main.py`; `tests/unit/test_api_v1.py`, `test_mcp_server.py` |
+| 23 | Agent over MCP approves its own plan, or smuggles a plan past the validator | call an approve tool; POST a plan with a chosen `plan_id`, a write, a second statement, an unknown step type; overwrite a plan a human is reviewing; path tricks in `plan_id` | No approve tool and no approve endpoint in `/api/v1`. Agent steps go through the same envelope and validator as LLM output, and the boundary assigns the id (`uuid4`), so an existing record cannot be overwritten. Invalid plans are refused (422) and audited. `plan_id` is format-checked before any request. The MCP process holds no DB credentials. ~~Residual: the approval UI is unauthenticated~~ — closed by 25 | `api/mcp_server.py`, `api/main.py`; `tests/unit/test_api_v1.py`, `test_mcp_server.py` |
 | 24 | Write or runaway query through a new source | DML/DDL/script on BigQuery; `ApplicationIntent=ReadWrite` in the SQL Server connection string; a bare name resolving to another schema; an unbounded scan; boundary parsing one dialect while the DB runs another | BigQuery: the adapter re-parses the template (one SELECT only), then dry run, only `statement_type == SELECT` runs; `maximum_bytes_billed` + `job_timeout_ms`, every API call bounded by the statement timeout. SQL Server: a login holding any non-read permission is refused (`ApplicationIntent` and read-only mode proved to be hints only), query timeout + `LOCK_TIMEOUT`, default schema checked. Both: `max_rows` + 1 fetch → error, sanitized errors. Dialect mismatch stops startup | `executor/adapters/{sqlserver,bigquery,factory}.py`; `tests/unit/test_sqlserver_adapter.py`, `test_bigquery_adapter.py`, `test_adapter_factory.py` ; live: `tests/integration/test_sqlserver_live.py` (SQL Server 2022), `test_bigquery_live.py` (BigQuery emulator) in `live-adapters.yml` |
+| 25 | Agent or hostile page drives the approval UI | unauthenticated `POST /plans/{id}/approve`; the `/api/v1` bearer token sent to the UI or used as a login; a forged or replayed-after-logout session cookie; a missing, guessed or other-session CSRF token; cross-site form post (`Origin`, `Origin: null`, `Sec-Fetch-Site: cross-site`); framing the approve button; `approver=the-ceo` in the form; `next=//evil` after login; reading `/`, `/plans/{id}`, `/audit` without signing in | Refused — 401 without a session, 403 without the session's CSRF token or when cross-site; reads redirect to `/login` and show no plan. Nothing executes and no approval is audited. The API token is a different secret (startup refuses equal values); the audit actor is the signed-in approver; sessions are server-side and die on logout; `X-Frame-Options: DENY` + `frame-ancestors 'none'`. No approvers configured → a one-time token in the server log, not open access. **Residual:** an agent that can read the server's logs or the approver's token store can sign in — the token is the trust anchor, like the HMAC key | `api/auth.py`, `api/main.py`; `tests/adversarial/test_ui_auth_attacks.py`, `tests/unit/test_ui_auth.py` |
 
 ## 5. Residual risks (accepted, documented)
 
@@ -81,10 +89,14 @@ is given).
   attacker within budget, or across sessions, can still learn distributional
   facts. Fondaco protects row data from crossing, not all inference over
   aggregates.
-- **No authentication in V1.** Approver identity is self-declared; the query
-  budget is per session cookie, so clearing cookies resets it. The mitigation is
-  the audit trail, not prevention. Per-user identity/authz is a deployment
-  concern.
+- **Approvers are authenticated, agents are not identified.** Since 2026-11 the
+  approval UI requires a personal approver token (attack 25), and the UI
+  budget follows the approver. What remains: no SSO, no roles (any approver
+  can approve any plan), no login lockout (tokens are 256-bit random, so
+  guessing is not the threat; theft is). On `/api/v1` the query budget is still
+  per session cookie, so an agent that drops cookies gets a fresh budget; it
+  matters only for auto-approved plans, since every other execution passes an
+  approver. `/health` and `/audit/head` stay public (no plan or row content).
 - **The audit seal is only as strong as the key and the anchors.** Entries are
   HMAC-SHA256 under `FONDACO_AUDIT_HMAC_KEY`: a wholesale rewrite without the
   key is detected (13b). Three cases remain outside what the log can prove by
@@ -144,6 +156,9 @@ is given).
   each filed in `STATE.md` and approved by the maintainer: `adapter-contract.md`
   v1 (`enum_values`, `business_description`) and `plan-dsl.md` v2 (`WITH`
   templates, non-recursive, read-only).
+- **Approval UI sign-in (2026-11-15):** attack 25 added; the residual of 23
+  (an agent clicking approve in an unauthenticated UI) is closed. No frozen
+  interface changed.
 - No frozen interface required changing — CRIT-1 was an implementation defect in
   the label scanner, fixed within `boundary/policy.py`.
 - Feeds the README section "What this does NOT protect against".

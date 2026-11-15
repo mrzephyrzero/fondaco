@@ -85,6 +85,7 @@ def _make_client(adapter, tmp_path, budget: int, monkeypatch):
 
     from api.main import create_app
     from planner.client import PlannerClient
+    from tests.ui_auth import sign_in
 
     monkeypatch.setenv("FONDACO_QUERY_BUDGET", str(budget))
     monkeypatch.delenv("FONDACO_GUARD_K", raising=False)  # default k=5
@@ -97,7 +98,7 @@ def _make_client(adapter, tmp_path, budget: int, monkeypatch):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    return TestClient(app), attacker
+    return sign_in(TestClient(app), "attacker"), attacker
 
 
 def test_binary_search_is_suppressed_then_budget_halts(adapter, tmp_path, monkeypatch):

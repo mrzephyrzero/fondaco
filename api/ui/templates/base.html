@@ -31,6 +31,8 @@
     .allow { color:var(--accent); font-weight:600; } .deny { color:var(--deny); font-weight:600; }
     button { padding:0.4rem 1rem; border:1px solid var(--line); cursor:pointer; }
     button.approve { background:var(--accent); color:#fff; border-color:var(--accent); }
+    button.link { border:none; background:none; padding:0; color:var(--ink);
+                  text-decoration:underline; font:inherit; font-size:0.88rem; }
     button.reject { background:#fff; color:var(--deny); border-color:var(--deny); }
     input[type=text] { padding:0.45rem; width:100%; box-sizing:border-box; }
     .error { color:var(--deny); }
@@ -52,7 +54,15 @@
 <header>
   <h1><a href="/">Fondaco</a></h1>
   <span class="tagline">Data stays home. Plans cross.</span>
-  <nav><a href="/audit">Audit log</a></nav>
+  {% if ui_user %}
+  <nav><a href="/audit">Audit log</a>
+    <span class="muted">· signed in as <strong>{{ ui_user }}</strong></span>
+    <form method="post" action="/logout" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="link">Sign out</button>
+    </form>
+  </nav>
+  {% endif %}
 </header>
 <main>{% block content %}{% endblock %}</main>
 </body>

@@ -46,7 +46,9 @@ git clone <this-repo> && cd fondaco
 docker compose up
 ```
 
-Open **http://localhost:8000**. The stack seeds a synthetic warehouse dataset
+Open **http://localhost:8000** and sign in with the one-time approver token the
+app prints at startup (`docker compose logs app | grep one-time`). The port is
+published on `127.0.0.1` only. The stack seeds a synthetic warehouse dataset
 (~51k rows) and starts in **demo mode**: plans are pre-generated fixtures for
 the scripted questions below — **no LLM is involved** — but they cross the exact
 same validator, policy, executor, guards, and audit as a real request. A banner
@@ -154,6 +156,33 @@ by the analyser, and the session budget must cover it. A result with fewer than
 k-threshold) is held until a human releases it. Auto-approval changes who
 clicks, never what the boundary allows; each decision is audited.
 
+## Approver sign-in
+
+Only named approvers can open the UI, see plans and decide on them. Mint a
+token per person and configure the hashes, never the tokens:
+
+```bash
+python -m api.auth new-approver alice
+# token (give it to alice, store nowhere else): …
+# FONDACO_APPROVERS entry: alice:3b1f…
+FONDACO_APPROVERS="alice:3b1f…,bob:9c0e…"   # or FONDACO_APPROVERS_FILE=/run/secrets/approvers
+```
+
+The approver written to the audit log is the signed-in name, not a form field.
+Sessions are server-side (HttpOnly, `SameSite=Strict`, 8 h by default via
+`FONDACO_UI_SESSION_TTL_S`) and end on sign-out or restart. Every UI POST needs
+the session's CSRF token and is refused when the browser marks it cross-site;
+pages cannot be framed. With no approvers configured the app does not open up:
+it prints a one-time token for `admin` to its log at each start. A malformed
+approver list, or a `FONDACO_API_TOKEN` equal to an approver token, stops
+startup. In the UI the query budget follows the approver, so a new browser does
+not reset it.
+
+Compose publishes the port on `127.0.0.1` (`FONDACO_BIND_ADDRESS`). To serve
+other machines, put it behind TLS and set `FONDACO_UI_COOKIE_SECURE=true`;
+the reverse proxy must pass the original `Host` header. Sign-in is a bearer
+token on purpose: SSO/OIDC is a roadmap item, and it replaces only `/login`.
+
 ## Onboarding a source: `fondaco discover`
 
 ```bash
@@ -197,8 +226,10 @@ is no approve tool. A plan that needs a human comes back with an `approval_url`
 for the Fondaco UI; the agent can only wait. Agent-written steps are treated
 exactly like LLM output: same envelope, same validator, boundary-assigned plan
 id. Set `FONDACO_API_TOKEN` on both sides to require a bearer token on
-`/api/v1`. The token protects only `/api/v1`. The approval UI still has no
-authentication in V1, so keep it on a network agents cannot reach.
+`/api/v1`. That token is the agent's credential and opens nothing in the
+approval UI, which needs an approver sign-in (see
+[Approver sign-in](#approver-sign-in)). An agent that reaches the UI over HTTP
+gets a login page.
 
 ## Sources: Postgres, SQL Server, BigQuery
 
@@ -239,7 +270,7 @@ tests against a mocked client.
 ## What this does NOT protect against
 
 Fondaco is a reference architecture; this list is deliberately honest. The full
-attack log — 20 documented attacks, each with its outcome, including the ones
+attack log — 25 documented attacks, each with its outcome, including the ones
 it does not stop — is in
 [`design/threat-model.md`](design/threat-model.md). That pass found and fixed
 one critical (a comma-join that hid a restricted table from the label scanner,
@@ -251,12 +282,15 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
   patient attacker within budget, or across sessions, can still learn
   distributional facts. Fondaco protects against *row data crossing the
   boundary*, not against all inference over aggregates.
-- **No authentication in V1.** The approver identity is self-declared, and the
-  query budget is keyed on a session cookie the client chooses to send. A
-  browser that clears cookies gets a fresh budget; a client that never sends one
-  gets a fresh budget on *every request*, so against non-browser callers the
-  budget is not a limit at all. The mitigation is the append-only audit trail,
-  not prevention. Per-user identity/authz is a deployment concern (roadmap).
+- **Approvers are authenticated; agents are not identified.** UI approvers sign
+  in with a personal token, and their name is what the audit records. There is
+  no SSO, no roles (every approver can approve every plan) and no lockout,
+  which relies on tokens being 256-bit random. On `/api/v1` the query budget is
+  still keyed on a session cookie the client chooses to send: a client that
+  never sends one gets a fresh budget on *every request*, so against agents the
+  budget is not a limit unless auto-approval is off (then every execution
+  needs an approver, whose budget does hold). The mitigation there is the
+  audit trail, not prevention.
 - **Differencing across groupings.** The k-threshold suppresses small groups
   within one result but does not defend against combining two different legal
   aggregates to isolate an individual.

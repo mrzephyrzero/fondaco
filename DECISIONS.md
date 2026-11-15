@@ -81,6 +81,11 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | `mcp` (optional extra `mcp`, in the image, and dev) | Official MCP Python SDK: stdio and streamable-HTTP transports, protocol compliance we should not hand-roll. Never imported by the boundary or the web app |
 | 2026-11-15 | `pyodbc` (optional extra `sqlserver`) | De-facto SQL Server driver with `readonly` access mode and query timeouts; imported only when `FONDACO_ADAPTER=sqlserver` |
 | 2026-11-15 | `google-cloud-bigquery` (optional extra `bigquery`) | Official client; needed for dry runs, `maximum_bytes_billed` and typed query parameters; imported only when `FONDACO_ADAPTER=bigquery` |
+| 2026-11-15 | Approval UI requires a signed-in approver (supersedes the 2026-07-14 self-declared approver): per-person 256-bit tokens, only SHA-256 hashes configured (`FONDACO_APPROVERS` / `_FILE`), server-side sessions, CSRF token on every POST, `Sec-Fetch-Site`/`Origin` cross-site refusal, no framing | The UI is the only place a plan gets approved, so it must be closed to an agent that can reach it over HTTP. Stdlib only (`secrets`, `hashlib`, `hmac`): no new dependency. A fast hash is enough for random tokens |
+| 2026-11-15 | No approvers configured → one-time `admin` token printed to the server log at each start, not open access; malformed list or an API token equal to an approver token → no start | Fail closed while keeping `docker compose up` working with zero configuration |
+| 2026-11-15 | Compose publishes port 8000 on `127.0.0.1` by default (`FONDACO_BIND_ADDRESS`) | Defense in depth around the sign-in; the container still listens on 0.0.0.0 so the mapping works |
+| 2026-11-15 | In the UI the query budget is keyed on the approver, not the session cookie | With identity available, clearing cookies no longer resets an approver's budget; `/api/v1` keeps the cookie key (no agent identity yet) |
+| 2026-11-15 | Token sign-in now, SSO/OIDC later (roadmap) | OIDC needs an IdP and a client library; the session/CSRF layer is independent of how `/login` checks the credential |
 
 ## Sign-offs
 
