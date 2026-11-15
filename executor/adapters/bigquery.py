@@ -5,12 +5,21 @@
 Defense in depth, outermost first:
   * the service account should hold only `bigquery.dataViewer` on the exposed
     dataset and `bigquery.jobUser` on the billing project (deployment);
-  * every statement is first submitted as a dry run, and only a statement
+  * the template is parsed again here (`boundary.sql_ast.parse_template`) and
+    anything but one SELECT is refused before any request is sent. This check
+    does not depend on BigQuery: the emulator used by the live tests reports
+    every dry run as `SELECT`, INSERT included, and a write got through when
+    the dry run was the only gate;
+  * every statement is then submitted as a dry run, and only a statement
     BigQuery itself reports as `SELECT` is run — DML, DDL and scripts are
     refused before any byte is read;
   * `maximum_bytes_billed` caps cost (the job fails instead of scanning
-    more), `job_timeout_ms` and a client-side timeout cap duration, and
-    results are fetched with `max_results = max_rows + 1`;
+    more) and `job_timeout_ms` caps duration server-side. Every API call
+    also carries the same timeout and a retry deadline no longer than it:
+    the SDK default retries for up to ten minutes, and against the emulator
+    a slow query held the call past two minutes with a one-second budget.
+    A job still running at the deadline is cancelled, best effort;
+  * results are fetched with `max_results = max_rows + 1`;
   * plans use bare table names, resolved against one `default_dataset`; a
     qualified `project.dataset.table` never gets here (the boundary refuses
     qualified names as reads outside the annotated schema).
@@ -28,6 +37,7 @@ import json
 import re
 
 from boundary.policy import query_label
+from boundary.sql_ast import SqlRejected, parse_template
 from executor.adapters.annotations import Annotations, apply_annotations
 from executor.adapters.contract import (
     AdapterError,
@@ -73,7 +83,12 @@ def _sanitize(exc: Exception) -> str:
 
 def _is_timeout(exc: Exception) -> bool:
     name = type(exc).__name__
-    return name in ("TimeoutError", "DeadlineExceeded", "Timeout") or "timeout" in name.lower()
+    # RetryError: google-api-core gave up because the retry deadline (set to
+    # the statement timeout) ran out — the form a slow call actually takes.
+    return (
+        name in ("TimeoutError", "DeadlineExceeded", "Timeout", "RetryError")
+        or "timeout" in name.lower()
+    )
 
 
 class BigQueryAdapter:
@@ -160,6 +175,12 @@ class BigQueryAdapter:
         except Exception as exc:
             raise AdapterError("schema", _sanitize(exc)) from exc
 
+    def _retry(self, bq):
+        retry = getattr(bq, "DEFAULT_RETRY", None)
+        if retry is None or not hasattr(retry, "with_timeout"):
+            return None  # fakes and very old SDKs: no retries at all, which is bounded too
+        return retry.with_timeout(self._timeout_s)
+
     def _job_config(self, bq, params: dict, dry_run: bool):
         return bq.QueryJobConfig(
             default_dataset=self._dataset_id,
@@ -178,6 +199,11 @@ class BigQueryAdapter:
         if not isinstance(step, dict) or step.get("type") != "query":
             raise AdapterError("execution", "adapter only executes query steps")
         try:
+            parse_template(step["template"], dialect=DIALECT)
+        except (KeyError, SqlRejected) as exc:
+            code = getattr(exc, "code", type(exc).__name__)
+            raise AdapterError("execution", f"only one SELECT is executed ({code})") from exc
+        try:
             sql, values = to_named(step["template"], step["params"])
             params = {name: (step["params"][name]["type"], v) for name, v in values.items()}
             for kind, _ in params.values():
@@ -191,18 +217,29 @@ class BigQueryAdapter:
         # Labels are read fresh for every execution, like the Postgres adapter.
         labels = schema_labels_dict(self.get_schema())
         label = query_label(step["template"], labels, dialect=DIALECT).name.lower()
+        bounded = {"timeout": self._timeout_s, "retry": self._retry(bq)}
+        job = None
         try:
-            dry = client.query(sql, job_config=self._job_config(bq, params, True))
+            dry = client.query(
+                sql, job_config=self._job_config(bq, params, True), job_retry=None, **bounded
+            )
             if getattr(dry, "statement_type", None) != "SELECT":
                 raise AdapterError("execution", "only SELECT statements are executed")
-            job = client.query(sql, job_config=self._job_config(bq, params, False))
-            result = job.result(max_results=self._max_rows + 1, timeout=self._timeout_s)
+            job = client.query(
+                sql, job_config=self._job_config(bq, params, False), job_retry=None, **bounded
+            )
+            result = job.result(max_results=self._max_rows + 1, **bounded)
             columns = tuple(f.name for f in result.schema)
             fetched = [tuple(row.values()) for row in result]
         except AdapterError:
             raise
         except Exception as exc:
             kind = "timeout" if _is_timeout(exc) else "execution"
+            if kind == "timeout" and job is not None:
+                try:
+                    job.cancel(timeout=self._timeout_s)  # best effort; job_timeout_ms backs it
+                except Exception:  # noqa: S110 — the timeout is what gets reported
+                    pass
             raise AdapterError(kind, _sanitize(exc)) from exc
 
         if len(fetched) > self._max_rows:

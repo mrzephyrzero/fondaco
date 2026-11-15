@@ -66,7 +66,9 @@ class FakeClient:
         self.rows = rows
         self.error = error
         self.queries = []
+        self.query_kwargs = []
         self.result_kwargs = None
+        self.cancelled = False
 
     def list_tables(self, dataset_id, timeout=None):
         self.dataset_id = dataset_id
@@ -75,8 +77,9 @@ class FakeClient:
     def get_table(self, reference, timeout=None):
         return TABLES[reference]
 
-    def query(self, sql, job_config=None):
+    def query(self, sql, job_config=None, **kwargs):
         self.queries.append((sql, job_config))
+        self.query_kwargs.append(kwargs)
         if job_config.dry_run:
             return SimpleNamespace(statement_type=self.statement_type)
         client = self
@@ -87,6 +90,9 @@ class FakeClient:
                 if client.error is not None:
                     raise client.error
                 return FakeResult(Row(r) for r in client.rows[: kwargs["max_results"]])
+
+            def cancel(self, **kwargs):
+                client.cancelled = True
 
         return Job()
 
@@ -130,8 +136,49 @@ def test_dry_run_gate_then_capped_execution():
     assert cfg.use_legacy_sql is False
     (param,) = cfg.query_parameters
     assert (param.name, param.type_, param.value) == ("r", "STRING", "x")
-    assert client.result_kwargs == {"max_results": 10_001, "timeout": 20}
+    # Every API call is bounded by the statement timeout, retries included.
+    assert client.result_kwargs == {"max_results": 10_001, "timeout": 20, "retry": None}
+    assert client.query_kwargs == [{"timeout": 20, "retry": None, "job_retry": None}] * 2
     assert result.rows == (("north", 7), ("south", 6)) and result.label == "internal"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "INSERT INTO orders (region) VALUES ('x')",
+        "DELETE FROM orders WHERE region = 'x'",
+        "SELECT region FROM orders; DELETE FROM orders WHERE region = 'x'",
+        "CREATE TABLE leak AS SELECT region FROM orders",
+    ],
+)
+def test_non_select_is_refused_before_any_request_even_if_dry_run_says_select(template):
+    # The BigQuery emulator reports every dry run as SELECT; a write got
+    # through when the dry run was the only gate (test_bigquery_live.py).
+    adapter, client = _adapter(FakeClient(statement_type="SELECT"))
+    with pytest.raises(AdapterError) as err:
+        adapter.execute(_step(template))
+    assert err.value.kind == "execution"
+    assert client.queries == []
+
+
+def test_retry_deadline_is_the_statement_timeout():
+    class Retry:
+        def __init__(self, timeout=600.0):
+            self.timeout = timeout
+
+        def with_timeout(self, timeout):
+            return Retry(timeout)
+
+    class BQWithRetry(FakeBQ):
+        DEFAULT_RETRY = Retry()
+
+    client = FakeClient()
+    adapter = BigQueryAdapter(
+        "acme-analytics", "erp", client=client, bigquery_module=BQWithRetry, statement_timeout_s=7
+    )
+    adapter.execute(_step())
+    assert {kw["retry"].timeout for kw in client.query_kwargs} == {7}
+    assert client.result_kwargs["retry"].timeout == 7
 
 
 @pytest.mark.parametrize("statement_type", ["INSERT", "DELETE", "SCRIPT", "CREATE_TABLE", None])
@@ -165,19 +212,25 @@ class BadRequest(Exception):
     code = 400
 
 
+class RetryError(Exception):
+    """google-api-core's form of 'the retry deadline ran out'."""
+
+
 @pytest.mark.parametrize(
     ("error", "kind"),
     [
         (DeadlineExceeded("deadline"), "timeout"),
+        (RetryError("Timeout of 1.0s exceeded"), "timeout"),
         (BadRequest("Bad int64 value: alice@example.it"), "execution"),
     ],
 )
 def test_errors_are_sanitized(error, kind):
-    adapter, _ = _adapter(FakeClient(error=error))
+    adapter, client = _adapter(FakeClient(error=error))
     with pytest.raises(AdapterError) as err:
         adapter.execute(_step())
     assert err.value.kind == kind
     assert "alice" not in str(err.value)
+    assert client.cancelled == (kind == "timeout")  # a timed-out job is not left running
 
 
 @pytest.mark.parametrize(
