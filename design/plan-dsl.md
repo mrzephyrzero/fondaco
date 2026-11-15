@@ -1,11 +1,12 @@
 # Plan DSL Specification
 
-**Version:** v1 — **FROZEN**
-**Supersedes:** v0 (frozen by the human architect on 2026-07-13, sign-off in `DECISIONS.md`). Binding for all implementation.
+**Version:** v2 — **FROZEN**
+**Supersedes:** v1 (v0 frozen by the human architect on 2026-07-13, sign-off in `DECISIONS.md`). Binding for all implementation.
 **Change procedure (post-freeze):** No in-place edits. Implementation problems are filed in `STATE.md` under `INTERFACE_CHANGE_REQUEST` with the problem and a proposed change; only the human approves, and any approved change ships as a new version (v1, v2, …) of this document.
 
 **Changelog**
 
+- **v2** — §3.1 widened: a template may also begin with `WITH`, i.e. one or more non-recursive common table expressions followed by the final query, as long as every CTE body and the final query are read-only `SELECT`s. `WITH RECURSIVE` and data-modifying CTEs (`WITH x AS (DELETE …)`) remain forbidden. Motivation: the boundary's label analyser resolves CTEs column-precisely (since 2026-11), so the v1 restriction no longer bought any safety and forced planners into nested derived tables. Approved by the human maintainer on 2026-11-15. The wire value of `dsl_version` stays `"v0"`: document version and envelope version are independent, as in v1. This widens what is accepted; every plan valid under v1 remains valid. Nothing else changed.
 - **v1** — §2 corrected. v0 required step ids only to be unique and to match `^s[0-9]+$`, which would admit a non-contiguous set such as `s1, s3, s5`, while §4 of the same document already said "unique **sequential** step ids" and the validator has always enforced exactly `s1 … sN` in order. §2 now states the rule the rest of the document and the implementation were both using. This narrows what v0 nominally permitted, so no plan that was ever accepted becomes invalid. Nothing else changed: step types, template rules, parameter rules and non-goals are identical to v0.
 - **v0** — initial frozen version, 2026-07-13.
 
@@ -44,7 +45,7 @@ Exactly three step types exist. Anything else fails validation.
 }
 ```
 
-- `template`: a single SQL statement that MUST begin with `SELECT` (after whitespace/comment stripping; comments are themselves rejected). One statement only — no `;`.
+- `template`: a single SQL statement that MUST begin with `SELECT`, or with `WITH` followed by one or more non-recursive common table expressions and a final query (after whitespace stripping; comments are rejected). Every CTE body and the final query MUST be a read-only `SELECT` (or a set operation of `SELECT`s). `WITH RECURSIVE` is forbidden. One statement only — no `;`.
 - Placeholders MUST use named-parameter form (`%(name)s`). String interpolation, f-string-style braces, or literal values derived from the question where a parameter would do are validation errors.
 - `params`: every placeholder in the template must be declared here, and every declared param must appear in the template. Allowed types: `string`, `int`, `float`, `bool`, `date`, `timestamp`. Values are passed to the driver as bound parameters, never spliced into the template.
 - Forbidden anywhere in the template: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, `GRANT`, `COPY`, `CALL`, `DO`, `INTO`, `;`, comments (`--`, `/*`). Enforcement is deny-by-default: the validator whitelists structure, it does not merely blacklist keywords.

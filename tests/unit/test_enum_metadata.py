@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""Semantic ENUM metadata (proposed adapter-contract.md v1 §2.1, STATE.md).
+"""Semantic ENUM metadata (adapter-contract.md v1 §2.1).
 
 `enum_values` are the only column values the contract ever lets reach the
 planner. They are allowed solely on columns whose effective label is public

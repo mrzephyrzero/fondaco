@@ -1,8 +1,13 @@
 # Adapter Contract
 
-**Version:** v0 — **FROZEN**
-**Status:** Frozen as-is by the human architect on 2026-07-13 (sign-off in `DECISIONS.md`). Binding for all implementation.
+**Version:** v1 — **FROZEN**
+**Supersedes:** v0 (frozen as-is by the human architect on 2026-07-13, sign-off in `DECISIONS.md`). Binding for all implementation.
 **Change procedure (post-freeze):** No in-place edits. Problems are filed in `STATE.md` under `INTERFACE_CHANGE_REQUEST`; only the human approves; approved changes ship as a new version of this document.
+
+**Changelog**
+
+- **v1** — §2.1 extended with semantic ENUM metadata. `Column` gains two optional fields, `enum_values` and `business_description`, so the planner can filter low-cardinality code columns on values that exist instead of guessing (a wrong guess is a valid plan that returns zero rows). This is the single, bounded exception to "MUST NOT include row data or sample values": allowed only when the column's effective label is `public` or `internal`, at most 30 values. Filed in `STATE.md` as an `INTERFACE_CHANGE_REQUEST` and approved by the human maintainer on 2026-11-15. Nothing else changed; a v0 `Column` is a valid v1 `Column`.
+- **v0** — initial frozen version, 2026-07-13.
 
 ## 1. Purpose
 
@@ -23,9 +28,10 @@ Adapters receive only validated `query` steps (see `plan-dsl.md`). `aggregate` a
 
 Returns the queryable surface with classification labels attached (see `label-model.md`):
 
-- `AnnotatedSchema`: list of `Table(name, label, columns: list[Column], comment)` with `Column(name, sql_type, label, comment)`.
+- `AnnotatedSchema`: list of `Table(name, label, columns: list[Column], comment)` with `Column(name, sql_type, label, comment, enum_values = None, business_description = None)`.
 - Labels are resolved by the adapter from source-native annotations; objects without an annotation are returned with label `restricted` (fail closed).
-- May include coarse statistics (row counts) for planner context. MUST NOT include row data or sample values.
+- May include coarse statistics (row counts) for planner context. MUST NOT include row data or sample values, with the single exception below.
+- **Semantic ENUM metadata (v1).** `enum_values: list[str] | None` is the complete, closed set of distinct values a column holds; `business_description: str | None` explains them (e.g. `"01=Open, 02=In progress, 03=Blocked"`). Both MAY be set only when the column's effective label — `max(column label, table label)`, `label-model.md` §3 — is `public` or `internal`; `enum_values` only for at most 30 distinct strings of at most 64 characters each; `business_description` at most 1000 characters. Setting either on a `confidential` or `restricted` column is forbidden, and the shared contract types refuse to construct such a column or table. Both fields are untrusted text, like `comment`. Consumers that forward the schema to an LLM MUST re-check the effective label before serializing them.
 - `comment` fields are untrusted text (customer-controlled); consumers must treat them accordingly.
 
 ### 2.2 `execute(step) -> LabeledResult`

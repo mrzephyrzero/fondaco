@@ -43,7 +43,8 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | Postgres audit backend in its own schema `fondaco_audit`, append-only by privilege (SELECT+INSERT) and by trigger (UPDATE/DELETE/TRUNCATE raise) | Outside `public`, so the data adapter never lists it and the read-only data role has no grant; triggers hold even for an over-granted role |
 | 2026-11-15 | `verify_chain()` before every boundary operation; a failed verification halts the log for the life of the process (HTTP 503) | Fail closed on a broken, truncated or deleted chain; the halt is sticky so restoring the file does not silently resume |
 | 2026-11-15 | Anchoring: file and https webhook sinks (POST, or PUT for an S3 presigned URL); no AWS SDK | Covers tail truncation, deletion and key-holder rewrites; a presigned PUT reaches S3 without adding a dependency. Cadence is the deployer's scheduler calling `POST /audit/anchor` |
-| 2026-11-15 | `enum_values` / `business_description` implemented in the contract types, refused above `internal`, pending the adapter-contract INTERFACE_CHANGE_REQUEST | The code change is inert until an adapter populates the fields; the interface document is the maintainer's to change |
+| 2026-11-15 | `enum_values` / `business_description` implemented in the contract types, refused above `internal` | adapter-contract v1, approved by the maintainer 2026-11-15. Inert until an adapter (or the Step 2 discovery output) populates the fields |
+| 2026-11-15 | Plan DSL v2: templates may begin with `WITH` (non-recursive, read-only CTEs); `WITH RECURSIVE` refused by the parser | Approved by the maintainer. The AST analyser resolves CTEs column-precisely, so the v1 restriction bought no safety; recursion is refused because its cost is unbounded. Envelope `dsl_version` stays `v0` |
 | 2026-11-15 | Prompt v4 becomes the default | Teaches column-level labeling and enum-value filtering; v3 kept for reproducibility |
 
 ## Dependencies

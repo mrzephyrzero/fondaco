@@ -19,7 +19,7 @@ with an HMAC chain and anchorable off-box.
 
 | Asset | Where it lives | Crossing controlled by |
 |---|---|---|
-| Row data | Postgres (read-only role) | Executor + adapter; never sent to the planner (sole, bounded exception: `enum_values` of public/internal columns with ≤ 30 values — pending INTERFACE_CHANGE_REQUEST on adapter-contract) |
+| Row data | Postgres (read-only role) | Executor + adapter; never sent to the planner (sole, bounded exception: `enum_values` of public/internal columns with ≤ 30 values, adapter-contract v1) |
 | Classification labels | Schema `COMMENT` annotations | Adapter `get_schema` → policy engine |
 | The plan | Planner output (untrusted) | Validator (schema + structural) then policy |
 | Egress decision | Boundary | `boundary/policy.py` (max-label ≤ clearance) |
@@ -136,10 +136,10 @@ is given).
   `unknown_relation` deny, and the audit chain became HMAC-sealed with
   anchoring. Attacks 15–20 were added; 1, 3–7, 13 and 13b were re-run against
   the new code and their rows updated. 13b moves from *not detected* to
-  *detected without the key*. No frozen interface was edited. The
-  `enum_values` / `business_description` metadata contradicts
-  `adapter-contract.md` v0 §2.1 and is filed in `STATE.md` as an
-  `INTERFACE_CHANGE_REQUEST` awaiting the maintainer's approval.
+  *detected without the key*. Two frozen interfaces changed afterwards,
+  each filed in `STATE.md` and approved by the maintainer: `adapter-contract.md`
+  v1 (`enum_values`, `business_description`) and `plan-dsl.md` v2 (`WITH`
+  templates, non-recursive, read-only).
 - No frozen interface required changing — CRIT-1 was an implementation defect in
   the label scanner, fixed within `boundary/policy.py`.
 - Feeds the README section "What this does NOT protect against".
