@@ -60,6 +60,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | Auto-discovery lives in `executor/discovery/` (CLI `fondaco discover`), not a new top-level package | The repository layout is fixed (CLAUDE.md); discovery reads sources the way adapters do, so it sits beside them and is never imported by `boundary/` |
 | 2026-11-15 | Discovery is deterministic and local: check-digit detectors (codice fiscale, partita IVA, IBAN mod-97) plus email/phone/IP and whole-token name hints; at most 500 rows per table in memory; it never proposes `public` | No LLM and no network beyond the scanned database, so onboarding a source sends nothing anywhere. Check digits keep random codes from passing as PII; erring upward is the only allowed mistake, and publishing is a human decision |
 | 2026-11-15 | Discovery output is a proposal (`review_required: true`); the reviewed JSON feeds only `enum_values`/`business_description` through `FONDACO_SCHEMA_ANNOTATIONS`, never labels | Labels stay where they were (source comments), so a wrong or stale proposal cannot lower a label; metadata is applied only where the source's effective label is public/internal |
+| 2026-11-15 | `sqlite` joins the supported dialects; a relation name containing `/ \ : .` is refused as a path in every dialect | Embedded engines (DuckDB, SQLite) read files by name (`FROM 'x.csv'`); refusing path-shaped names at parse time keeps that out before any schema lookup. A real table with such a quoted name is refused too — fail closed |
 
 ## Dependencies
 

@@ -264,7 +264,9 @@ def test_unknown_dialect_from_env_fails_closed(monkeypatch):
     assert query_label("SELECT region FROM orders", LABELS) == Label.RESTRICTED
 
 
-@pytest.mark.parametrize("dialect", ["postgres", "duckdb", "tsql", "bigquery", "snowflake"])
+@pytest.mark.parametrize(
+    "dialect", ["postgres", "duckdb", "sqlite", "tsql", "bigquery", "snowflake"]
+)
 def test_legit_query_resolves_in_every_supported_dialect(dialect):
     template = "SELECT region, status FROM orders WHERE customer_id > %(n)s"
     plan = _plan(template, {"n": {"type": "int", "value": 3}})
