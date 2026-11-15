@@ -61,6 +61,9 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | Discovery is deterministic and local: check-digit detectors (codice fiscale, partita IVA, IBAN mod-97) plus email/phone/IP and whole-token name hints; at most 500 rows per table in memory; it never proposes `public` | No LLM and no network beyond the scanned database, so onboarding a source sends nothing anywhere. Check digits keep random codes from passing as PII; erring upward is the only allowed mistake, and publishing is a human decision |
 | 2026-11-15 | Discovery output is a proposal (`review_required: true`); the reviewed JSON feeds only `enum_values`/`business_description` through `FONDACO_SCHEMA_ANNOTATIONS`, never labels | Labels stay where they were (source comments), so a wrong or stale proposal cannot lower a label; metadata is applied only where the source's effective label is public/internal |
 | 2026-11-15 | `sqlite` joins the supported dialects; a relation name containing `/ \ : .` is refused as a path in every dialect | Embedded engines (DuckDB, SQLite) read files by name (`FROM 'x.csv'`); refusing path-shaped names at parse time keeps that out before any schema lookup. A real table with such a quoted name is refused too — fail closed |
+| 2026-11-15 | DuckDB adapter (`FONDACO_ADAPTER=duckdb`) reads labels from a reviewed `schema.yaml`/`.json` in the `fondaco-annotations` format; unlisted tables/columns are `restricted` | An embedded file or a folder of CSVs has no catalog comments to carry labels. Reusing the discovery output format means `fondaco discover --duckdb` → review → run, with no second format to learn |
+| 2026-11-15 | The DuckDB engine is locked at open: `read_only=True`, `enable_external_access=false`, no extension autoinstall/autoload, `lock_configuration=true`, timer-based interrupt, memory/thread caps. CSV/Parquet/SQLite sources are loaded first into a new file by a separate, closed connection; SQLite goes through stdlib `sqlite3`, not a DuckDB extension | An in-process engine can read the host filesystem; the boundary already refuses such templates, and the engine must refuse them again on its own (defense in depth). Building before opening keeps the serving connection free of any external access |
+| 2026-11-15 | One `fondaco` command dispatching to `discover`, `mcp`, `serve` (and `demo`) in `api/cli.py`; `fondaco-mcp` kept as an alias | One entry point to document; each subcommand imports only what it drives, so `discover` never loads the web app |
 
 ## Dependencies
 
@@ -87,6 +90,8 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | Compose publishes port 8000 on `127.0.0.1` by default (`FONDACO_BIND_ADDRESS`) | Defense in depth around the sign-in; the container still listens on 0.0.0.0 so the mapping works |
 | 2026-11-15 | In the UI the query budget is keyed on the approver, not the session cookie | With identity available, clearing cookies no longer resets an approver's budget; `/api/v1` keeps the cookie key (no agent identity yet) |
 | 2026-11-15 | Token sign-in now, SSO/OIDC later (roadmap) | OIDC needs an IdP and a client library; the session/CSRF layer is independent of how `/login` checks the credential |
+| 2026-11-15 | `duckdb` (optional extra `duckdb`, and dev) | Embedded analytical engine for the zero-install local source and demo; has the read-only/external-access/config-lock switches the adapter needs. Imported only when `FONDACO_ADAPTER=duckdb`, by `discover --duckdb`, or by `fondaco demo` |
+| 2026-11-15 | `pyyaml` (optional extra `duckdb`, and dev) | Reads human-edited `schema.yaml` labels files with `safe_load` (no object construction). JSON labels files need nothing; stdlib has no YAML parser |
 
 ## Sign-offs
 

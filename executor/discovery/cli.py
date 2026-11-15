@@ -3,6 +3,7 @@
 """`fondaco discover` — local schema classification for onboarding a source.
 
     fondaco discover --dsn postgresql://... [--schema public]
+    fondaco discover --duckdb warehouse.duckdb
     fondaco discover --csv orders.csv [--table orders]
     fondaco discover --excel export.xlsx
         [--format json|yaml] [--out annotations.json]
@@ -22,6 +23,7 @@ from executor.discovery.output import to_json, to_sql_comments, to_yaml
 from executor.discovery.sources import (
     DiscoveryError,
     discover_csv,
+    discover_duckdb,
     discover_excel,
     discover_postgres,
 )
@@ -33,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     d = sub.add_parser("discover", help="classify a source locally and propose annotations")
     src = d.add_mutually_exclusive_group(required=True)
     src.add_argument("--dsn", help="Postgres connection string (read-only access is enough)")
+    src.add_argument("--duckdb", type=Path, help="DuckDB database file (opened read-only)")
     src.add_argument("--csv", type=Path, help="CSV file to sample")
     src.add_argument("--excel", type=Path, help="Excel workbook (.xlsx); one table per sheet")
     d.add_argument("--schema", default="public", help="Postgres schema (default: public)")
@@ -52,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.dsn:
             findings = discover_postgres(args.dsn, schema=args.schema, max_rows=args.max_rows)
+        elif args.duckdb:
+            findings = discover_duckdb(args.duckdb, max_rows=args.max_rows)
         elif args.csv:
             findings = discover_csv(args.csv, table=args.table, max_rows=args.max_rows)
         else:

@@ -122,6 +122,20 @@ def is_iban(value: str) -> bool:
     return int(numeric) % 97 == 1
 
 
+_SSN_RE = re.compile(r"^([0-9]{3})-([0-9]{2})-([0-9]{4})$")
+
+
+def is_us_ssn(value: str) -> bool:
+    """US Social Security number in AAA-GG-SSSS form, with the SSA's never-issued
+    ranges excluded (area 000, 666, 9xx; group 00; serial 0000). Dashes are
+    required: a bare 9-digit run is far more often a code than an SSN."""
+    match = _SSN_RE.match(value.strip())
+    if not match:
+        return False
+    area, group, serial = match.groups()
+    return area not in ("000", "666") and area[0] != "9" and group != "00" and serial != "0000"
+
+
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 
 
@@ -167,6 +181,7 @@ VALUE_DETECTORS: dict[str, object] = {
     "codice_fiscale": is_codice_fiscale,
     "partita_iva": is_partita_iva,
     "iban": is_iban,
+    "us_ssn": is_us_ssn,
     "email": is_email,
     "phone": is_phone,
     "ip_address": is_ip_address,

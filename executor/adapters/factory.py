@@ -6,6 +6,10 @@
     sqlserver            FONDACO_MSSQL_CONNECTION_STRING, FONDACO_MSSQL_SCHEMA (dbo)
     bigquery             FONDACO_BQ_PROJECT, FONDACO_BQ_DATASET,
                          FONDACO_BQ_MAX_BYTES_BILLED, FONDACO_BQ_LOCATION
+    duckdb               FONDACO_DUCKDB_SCHEMA (labels file, required) and either
+                         FONDACO_DUCKDB_PATH (an existing .duckdb file) or
+                         FONDACO_DUCKDB_SOURCES (comma-separated CSV/Parquet/
+                         SQLite files, loaded into a temporary file at startup)
 
 Each adapter speaks one SQL grammar, and the boundary must parse plans in that
 same grammar. `FONDACO_SQL_DIALECT` therefore has to name the adapter's
@@ -22,7 +26,12 @@ from boundary.sql_ast import DEFAULT_DIALECT, DIALECT_ENV
 from executor.adapters.annotations import Annotations
 
 ADAPTER_ENV = "FONDACO_ADAPTER"
-ADAPTER_DIALECTS = {"postgres": "postgres", "sqlserver": "tsql", "bigquery": "bigquery"}
+ADAPTER_DIALECTS = {
+    "postgres": "postgres",
+    "sqlserver": "tsql",
+    "bigquery": "bigquery",
+    "duckdb": "duckdb",
+}
 
 
 class AdapterConfigError(RuntimeError):
@@ -78,6 +87,8 @@ def adapter_from_env(annotations: Annotations | None = None, env: dict | None = 
                 schema=env.get("FONDACO_MSSQL_SCHEMA", "dbo"),
                 annotations=annotations,
             )
+        if kind == "duckdb":
+            return _duckdb_from_env(env, annotations)
         from executor.adapters.bigquery import DEFAULT_MAX_BYTES_BILLED, BigQueryAdapter
 
         return BigQueryAdapter(
@@ -89,3 +100,39 @@ def adapter_from_env(annotations: Annotations | None = None, env: dict | None = 
         )
     except KeyError as exc:
         raise AdapterConfigError(f"{kind} adapter needs {exc.args[0]}") from exc
+
+
+def _duckdb_from_env(env: dict, annotations: Annotations | None):
+    import tempfile
+    from pathlib import Path
+
+    from executor.adapters.contract import AdapterError
+    from executor.adapters.duckdb_adapter import DuckDBAdapter, build_database
+    from executor.adapters.schema_file import SchemaFileError, load_schema_file
+
+    schema_path = (env.get("FONDACO_DUCKDB_SCHEMA") or "").strip()
+    if not schema_path:
+        raise AdapterConfigError("duckdb adapter needs FONDACO_DUCKDB_SCHEMA (a labels file)")
+    try:
+        labels = load_schema_file(schema_path)
+    except SchemaFileError as exc:
+        raise AdapterConfigError(f"FONDACO_DUCKDB_SCHEMA: {exc}") from exc
+    path = (env.get("FONDACO_DUCKDB_PATH") or "").strip()
+    sources = [s.strip() for s in (env.get("FONDACO_DUCKDB_SOURCES") or "").split(",") if s.strip()]
+    if bool(path) == bool(sources):
+        raise AdapterConfigError(
+            "duckdb adapter needs exactly one of FONDACO_DUCKDB_PATH or FONDACO_DUCKDB_SOURCES"
+        )
+    try:
+        if sources:
+            workdir = Path(tempfile.mkdtemp(prefix="fondaco-duckdb-"))
+            path = str(build_database(workdir / "sources.duckdb", sources))
+        return DuckDBAdapter(
+            path,
+            labels=labels,
+            max_rows=_int(env, "FONDACO_DUCKDB_MAX_ROWS", 10_000),
+            statement_timeout_s=_int(env, "FONDACO_DUCKDB_TIMEOUT_S", 30),
+            annotations=annotations,
+        )
+    except AdapterError as exc:
+        raise AdapterConfigError(f"duckdb adapter: {exc}") from exc

@@ -21,14 +21,16 @@ dependencies = [
 [project.optional-dependencies]
 # Excel sources for `fondaco discover` only; the boundary never imports it.
 excel = ["openpyxl>=3.1,<4"]
-# MCP server (`fondaco-mcp`); a separate process that only talks to the boundary's JSON API.
+# MCP server (`fondaco mcp` / `fondaco-mcp`); a separate process that only talks to the boundary's JSON API.
 mcp = ["mcp>=2.3,<3"]
 # Read-only source adapters, imported only when selected with FONDACO_ADAPTER.
 sqlserver = ["pyodbc>=5.2,<6"]
 bigquery = ["google-cloud-bigquery>=3.30,<4"]
+# Local DuckDB source (CSV/Parquet/SQLite loaded at startup) and YAML labels files.
+duckdb = ["duckdb>=1.1,<2", "pyyaml>=6,<7"]
 
 [project.scripts]
-fondaco = "executor.discovery.cli:main"
+fondaco = "api.cli:main"
 fondaco-mcp = "api.mcp_server:main"
 
 [dependency-groups]
@@ -38,6 +40,8 @@ dev = [
     "ruff>=0.8",
     "openpyxl>=3.1,<4",  # exercises the optional Excel discovery source in CI
     "mcp>=2.3,<3",  # exercises the MCP server in CI
+    "duckdb>=1.1,<2",  # exercises the DuckDB adapter, discovery source and demo in CI
+    "pyyaml>=6,<7",
 ]
 
 [build-system]
