@@ -13,7 +13,10 @@ What it does:
      external access off, duckdb dialect, egress clearance `internal`, an
      HMAC audit log in the data directory under a fresh random key;
   3. starts the web UI with the keyless fixture planner and its scripted
-     questions and attacks — or a real planner, when one is configured.
+     questions and attacks — or a real planner, when one is configured. The
+     UI requires a signed-in approver: unless FONDACO_APPROVERS is set, the
+     demo mints a token for approver `demo` (kept in the data directory,
+     printed at start; the app only holds its hash).
 
 Nothing here is a shortcut: the demo runs the production validator, policy
 engine, guards, executor and audit log; only the data and the planner's
@@ -36,6 +39,8 @@ from pathlib import Path
 
 DB_NAME = "demo.duckdb"
 SCHEMA_NAME = "schema.yaml"
+APPROVER_TOKEN_NAME = "approver-token"  # noqa: S105 — a file name, not a secret
+DEMO_APPROVER = "demo"
 
 SCHEMA_YAML = """\
 # Labels for the `fondaco demo` dataset, in the format `fondaco discover`
@@ -268,12 +273,32 @@ def demo_env(
             key_file.chmod(0o600)
         out["FONDACO_AUDIT_HMAC_KEY"] = key_file.read_text(encoding="utf-8").strip()
         out["FONDACO_AUDIT_HMAC_KEY_ID"] = "demo"
+    if not any((env.get(n) or "").strip() for n in ("FONDACO_APPROVERS", "FONDACO_APPROVERS_FILE")):
+        # The approval UI always requires a signed-in approver. The demo mints
+        # one token per data directory for approver `demo` and prints it at
+        # start; the app only ever sees its hash.
+        from api.auth import hash_token, new_token
+
+        token_file = data_dir / APPROVER_TOKEN_NAME
+        if not token_file.exists():
+            token_file.write_text(new_token(), encoding="utf-8")
+            token_file.chmod(0o600)
+        token = token_file.read_text(encoding="utf-8").strip()
+        out["FONDACO_APPROVERS"] = f"{DEMO_APPROVER}:{hash_token(token)}"
     if auto_approve:
         out["FONDACO_AUTO_APPROVE_ENABLED"] = "true"
     for name in ("FONDACO_SCHEMA_ANNOTATIONS", "DATABASE_URL"):
         out[name] = ""  # the demo's own labels file is the only overlay
     out.update(planner_env(planner, env))
     return out
+
+
+def _sign_in_line(data_dir: Path) -> str:
+    token_file = data_dir / APPROVER_TOKEN_NAME
+    if not token_file.exists():  # approvers configured by the user
+        return "  sign in:   with your own approver token (FONDACO_APPROVERS)\n"
+    token = token_file.read_text(encoding="utf-8").strip()
+    return f"  sign in:   approver token {token}\n             (also in {token_file})\n"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -326,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         f"  labels:    {schema_path}\n"
         f"  planner:   {'fixtures (no LLM, no key)' if planner == 'demo' else 'LLM'}\n"
         f"  clearance: {os.environ['FONDACO_EGRESS_CLEARANCE']}\n"
+        f"{_sign_in_line(data_dir)}"
         f"  MCP:       fondaco mcp --api-url http://{url_host}:{args.port}\n",
         flush=True,
     )

@@ -70,7 +70,9 @@ git clone https://github.com/mrzephyrzero/fondaco && cd fondaco
 docker compose -f docker-compose.demo.yml up
 ```
 
-Open **http://localhost:8000**. `fondaco demo` generates a synthetic company
+Open **http://localhost:8000** and sign in with the approver token `fondaco demo`
+prints at start (with Docker: `docker compose -f docker-compose.demo.yml logs demo`).
+The demo generates a synthetic company
 dataset in DuckDB (`employees` with `department` *public*, `role` *internal*,
 `salary` *confidential*, `full_name`/`iban`/`ssn` *restricted*; `orders` with a
 public `status` enum and an internal `amount`), opens it **read-only with

@@ -45,7 +45,9 @@ def client(dataset, tmp_path, monkeypatch):
         audit_path=str(tmp_path / "audit.jsonl"),
         clearance="internal",
     )
-    return TestClient(app)
+    from tests.ui_auth import sign_in
+
+    return sign_in(TestClient(app), "demo")
 
 
 def _ask(client, question):
@@ -131,8 +133,21 @@ def test_demo_env_locks_the_source_and_keys_the_audit(tmp_path):
     assert len(env["FONDACO_AUDIT_HMAC_KEY"]) >= 32
     assert env["FONDACO_PLANNER"] == "demo"
     assert "FONDACO_AUTO_APPROVE_ENABLED" not in env  # a human approves by default
+    # A signed-in approver is still required: the demo mints a token for
+    # approver `demo`, keeps it beside the data, and stores only its hash.
+    token = (tmp_path / "approver-token").read_text(encoding="utf-8").strip()
+    from api.auth import hash_token
+
+    assert env["FONDACO_APPROVERS"] == f"demo:{hash_token(token)}"
+    assert token not in env["FONDACO_APPROVERS"]
     # Same directory, same key: the log keeps verifying across restarts.
     assert demo_env(tmp_path, env={})["FONDACO_AUDIT_HMAC_KEY"] == env["FONDACO_AUDIT_HMAC_KEY"]
+
+
+def test_demo_keeps_configured_approvers(tmp_path):
+    env = demo_env(tmp_path, env={"FONDACO_APPROVERS": "alice:" + "0" * 64})
+    assert "FONDACO_APPROVERS" not in env
+    assert not (tmp_path / "approver-token").exists()
 
 
 def test_dataset_build_is_deterministic(tmp_path):
