@@ -28,6 +28,10 @@ services:
       FONDACO_AUDIT_HMAC_KEY: ${FONDACO_AUDIT_HMAC_KEY:-dev-only-insecure-published-audit-key-change-me}
       FONDACO_AUDIT_HMAC_KEY_ID: ${FONDACO_AUDIT_HMAC_KEY_ID:-dev}
       FONDACO_SQL_DIALECT: ${FONDACO_SQL_DIALECT:-postgres}
+      # Risk-proportional auto-approval: off unless set in .env.
+      FONDACO_AUTO_APPROVE_ENABLED: ${FONDACO_AUTO_APPROVE_ENABLED:-false}
+      FONDACO_AUTO_APPROVE_MAX_LABEL: ${FONDACO_AUTO_APPROVE_MAX_LABEL:-internal}
+      FONDACO_AUTO_APPROVE_MIN_ROWS: ${FONDACO_AUTO_APPROVE_MIN_ROWS:-10}
     volumes:
       - audit_data:/data
     extra_hosts:

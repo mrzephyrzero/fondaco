@@ -143,6 +143,36 @@ protection. That is the limit of the claim: `FONDACO_GUARD_K=1` is accepted and
 suppresses nothing, so the k-threshold *can* be turned off deliberately — it
 cannot be turned off by accident or by a malformed value.
 
+## Auto-approval (opt-in)
+
+By default every plan waits for a human. `FONDACO_AUTO_APPROVE_ENABLED=true`
+lets low-risk plans run without one: the policy engine must have allowed the
+plan, its label must be at most `FONDACO_AUTO_APPROVE_MAX_LABEL` (default
+`internal`; `restricted` is never accepted), every query must be fully resolved
+by the analyser, and the session budget must cover it. A result with fewer than
+`FONDACO_AUTO_APPROVE_MIN_ROWS` rows (default 10, counted after the
+k-threshold) is held until a human releases it. Auto-approval changes who
+clicks, never what the boundary allows; each decision is audited.
+
+## Onboarding a source: `fondaco discover`
+
+```bash
+fondaco discover --dsn postgresql://reader@host/erp --schema public \
+    --out annotations.json --sql-comments labels.sql
+fondaco discover --csv export.csv --format yaml
+fondaco discover --excel export.xlsx      # pip install 'fondaco[excel]'
+```
+
+Discovery samples at most 500 rows per table in memory, runs locally (no LLM,
+no network beyond the scanned database) and proposes a label per column:
+check-digit-validated codice fiscale, partita IVA, IBAN, plus email, phone, IP
+and names such as `stipendio`/`ral` → `restricted`; margins, costs, prices,
+discounts, revenue → `confidential`; everything else `internal`, never
+`public`. Short closed sets of codes get proposed `enum_values`. It is a
+proposal: the Data Owner reviews `labels.sql` before applying it, and may point
+`FONDACO_SCHEMA_ANNOTATIONS` at the reviewed JSON so the planner learns what
+codes like `01`/`02` mean. The overlay never changes a label.
+
 ## What this does NOT protect against
 
 Fondaco is a reference architecture; this list is deliberately honest. The full
@@ -229,7 +259,7 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
 | `design/` | Frozen interfaces (plan DSL, label model, adapter contract) + threat model |
 | `boundary/` | Security core: `validator`, `policy` (+ `sql_ast` parser front end), `guards`, `audit` |
 | `planner/` | Blind LLM planner (`client`) + the demo fixture planner (`demo`) + prompts |
-| `executor/` | Deterministic plan runner + `adapters/` (Postgres) |
+| `executor/` | Deterministic plan runner + `adapters/` (Postgres) + `discovery/` (`fondaco discover`) |
 | `api/` | FastAPI app + Jinja/htmx approval & audit UI |
 | `demo/` | Synthetic dataset loader + the 10 scripted `scenarios.md` |
 | `tests/` | `unit/`, `integration/`, `adversarial/` |

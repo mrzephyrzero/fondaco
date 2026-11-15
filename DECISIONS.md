@@ -46,6 +46,10 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-11-15 | `enum_values` / `business_description` implemented in the contract types, refused above `internal` | adapter-contract v1, approved by the maintainer 2026-11-15. Inert until an adapter (or the Step 2 discovery output) populates the fields |
 | 2026-11-15 | Plan DSL v2: templates may begin with `WITH` (non-recursive, read-only CTEs); `WITH RECURSIVE` refused by the parser | Approved by the maintainer. The AST analyser resolves CTEs column-precisely, so the v1 restriction bought no safety; recursion is refused because its cost is unbounded. Envelope `dsl_version` stays `v0` |
 | 2026-11-15 | Prompt v4 becomes the default | Teaches column-level labeling and enum-value filtering; v3 kept for reproducibility |
+| 2026-11-15 | Risk-proportional auto-approval (`boundary/approval_policy.py`), off by default; cap `internal`, `restricted` never configurable; every query step must be fully resolved by the analyser; results under `auto_approve_min_rows` (after the k-threshold) are held for a human | Removes the human from routine low-risk reads without moving the boundary: the policy engine still decides allow/deny, auto-approval only decides who clicks. Small results are where inference risk concentrates, so release (not execution) is what they wait for. Actor `auto-approval-policy` in the same audit chain |
+| 2026-11-15 | Auto-discovery lives in `executor/discovery/` (CLI `fondaco discover`), not a new top-level package | The repository layout is fixed (CLAUDE.md); discovery reads sources the way adapters do, so it sits beside them and is never imported by `boundary/` |
+| 2026-11-15 | Discovery is deterministic and local: check-digit detectors (codice fiscale, partita IVA, IBAN mod-97) plus email/phone/IP and whole-token name hints; at most 500 rows per table in memory; it never proposes `public` | No LLM and no network beyond the scanned database, so onboarding a source sends nothing anywhere. Check digits keep random codes from passing as PII; erring upward is the only allowed mistake, and publishing is a human decision |
+| 2026-11-15 | Discovery output is a proposal (`review_required: true`); the reviewed JSON feeds only `enum_values`/`business_description` through `FONDACO_SCHEMA_ANNOTATIONS`, never labels | Labels stay where they were (source comments), so a wrong or stale proposal cannot lower a label; metadata is applied only where the source's effective label is public/internal |
 
 ## Dependencies
 
@@ -63,6 +67,7 @@ One line per decision. Dependencies require rationale (operating rule 6). Interf
 | 2026-07-14 | `python-multipart` | FastAPI form parsing for the approval flow (ask/approve/reject forms) |
 | 2026-09-25 | `pytest-cov` (dev) | Branch coverage in CI. The fail-closed paths rule 5 requires were correct by inspection but executed by no test, and nothing could show it without an audit; a printed report makes a regression in those paths visible on every push |
 | 2026-11-15 | `sqlglot` (pinned `>=30.31,<31`) | Deterministic, pure-Python, parse-only SQL front end for five dialects with scope/column resolution; replaces a regex scanner that could not be made complete. Pinned to one major because its expression classes are the function allowlist |
+| 2026-11-15 | `openpyxl` (optional extra `excel`, and dev) | Excel sources for `fondaco discover` only; never imported by the boundary or the server. Optional so a default install gains no dependency; in dev so CI exercises it |
 
 ## Sign-offs
 
