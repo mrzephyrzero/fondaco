@@ -18,11 +18,19 @@ dependencies = [
     "sqlglot>=30.31,<31",
 ]
 
+[project.optional-dependencies]
+# Excel sources for `fondaco discover` only; the boundary never imports it.
+excel = ["openpyxl>=3.1,<4"]
+
+[project.scripts]
+fondaco = "executor.discovery.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "ruff>=0.8",
+    "openpyxl>=3.1,<4",  # exercises the optional Excel discovery source in CI
 ]
 
 [build-system]
