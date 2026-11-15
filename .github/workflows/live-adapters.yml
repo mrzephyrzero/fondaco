@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+#
+# The SQL Server and BigQuery adapters against real engines: SQL Server in a
+# container, BigQuery through goccy/bigquery-emulator. Separate from CI so the
+# main pipeline stays fast and needs no extra images; it runs on demand, when
+# the adapters or these tests change, and weekly to catch driver/engine drift.
+name: Live adapters
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+  push:
+    paths:
+      - "executor/adapters/sqlserver.py"
+      - "executor/adapters/bigquery.py"
+      - "executor/adapters/params.py"
+      - "tests/integration/test_sqlserver_live.py"
+      - "tests/integration/test_bigquery_live.py"
+      - "tests/integration/mssql_seed.sql"
+      - ".github/workflows/live-adapters.yml"
+  pull_request:
+    paths:
+      - "executor/adapters/sqlserver.py"
+      - "executor/adapters/bigquery.py"
+      - "executor/adapters/params.py"
+      - "tests/integration/test_sqlserver_live.py"
+      - "tests/integration/test_bigquery_live.py"
+      - "tests/integration/mssql_seed.sql"
+      - ".github/workflows/live-adapters.yml"
+
+jobs:
+  live-adapters:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Fondaco-dev-1
+        ports:
+          - 1433:1433
+    env:
+      FONDACO_TEST_MSSQL_ADMIN: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost,1433;UID=sa;PWD=Fondaco-dev-1;TrustServerCertificate=yes"
+      FONDACO_TEST_BQ_EMULATOR: http://localhost:9050
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start the BigQuery emulator
+        # Not a service container: services cannot pass the emulator its arguments.
+        run: |
+          docker run -d --name bigquery -p 9050:9050 ghcr.io/goccy/bigquery-emulator:0.8.1 \
+            --project=fondaco-test --dataset=warehouse
+      - name: Install ODBC Driver 18 for SQL Server
+        run: |
+          if ! odbcinst -q -d 2>/dev/null | grep -q "ODBC Driver 18 for SQL Server"; then
+            curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/ms.deb
+            sudo dpkg -i /tmp/ms.deb
+            sudo apt-get update
+            sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+          fi
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install '.[sqlserver,bigquery]' --group dev
+      - name: Wait for SQL Server and the emulator
+        run: |
+          python - <<'PY'
+          import os, time, urllib.request
+          import pyodbc
+          deadline = time.time() + 180
+          while True:
+              try:
+                  pyodbc.connect(os.environ["FONDACO_TEST_MSSQL_ADMIN"], timeout=5).close()
+                  urllib.request.urlopen(
+                      os.environ["FONDACO_TEST_BQ_EMULATOR"] + "/bigquery/v2/projects/fondaco-test/datasets",
+                      timeout=5,
+                  ).close()
+                  break
+              except Exception as exc:
+                  if time.time() > deadline:
+                      raise SystemExit(f"engines not ready: {type(exc).__name__}")
+                  time.sleep(3)
+          PY
+      - name: Live adapter tests (no test may skip)
+        run: |
+          pytest -q -rs tests/integration/test_sqlserver_live.py \
+            tests/integration/test_bigquery_live.py | tee /tmp/live.txt
+          ! grep -q "SKIPPED" /tmp/live.txt

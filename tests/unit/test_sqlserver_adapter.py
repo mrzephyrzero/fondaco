@@ -35,6 +35,8 @@ class FakeCursor:
             raise self.conn.error
         if sql == "SELECT SCHEMA_NAME()":
             self._rows = [(self.conn.default_schema,)]
+        elif "fn_my_permissions" in sql:
+            self._rows = [(p,) for p in self.conn.permissions]
         elif "sys.tables" in sql:
             self._rows = list(SCHEMA_ROWS)
         elif sql.startswith("SET"):
@@ -55,8 +57,16 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, default_schema="dbo", result_rows=(), fail_on=None, error=None):
+    def __init__(
+        self,
+        default_schema="dbo",
+        result_rows=(),
+        fail_on=None,
+        error=None,
+        permissions=("CONNECT", "SELECT", "VIEW ANY COLUMN MASTER KEY DEFINITION"),
+    ):
         self.default_schema = default_schema
+        self.permissions = permissions
         self.result_rows = result_rows
         self.fail_on = fail_on
         self.error = error
@@ -125,6 +135,34 @@ def test_wrong_default_schema_is_refused():
         adapter.get_schema()
     assert err.value.kind == "connection"
     assert conn.closed
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        ("CONNECT", "SELECT", "INSERT"),
+        ("CONNECT", "SELECT", "CONTROL"),
+        ("CONNECT", "EXECUTE"),
+        ("CONNECT", "SELECT", "SOME PERMISSION ADDED IN A LATER RELEASE"),
+    ],
+)
+def test_login_holding_anything_but_reads_is_refused(permissions):
+    # ApplicationIntent=ReadOnly and readonly=True do not stop a write on a
+    # standalone server (shown live in test_sqlserver_live.py); the
+    # permission check is what enforces read-only, and it is an allow-list.
+    adapter, conn, _ = _adapter(FakeConn(permissions=permissions))
+    with pytest.raises(AdapterError) as err:
+        adapter.execute(_step())
+    assert err.value.kind == "connection"
+    assert "not read-only" in err.value.message
+    assert conn.closed
+    assert not any(s.startswith("SELECT region") for s, _ in conn.statements)
+
+
+def test_read_permissions_are_accepted():
+    reads = ("CONNECT", "SELECT", "REFERENCES", "SHOWPLAN", "UNMASK", "VIEW DEFINITION")
+    adapter, _, _ = _adapter(FakeConn(permissions=reads, result_rows=[("north", 1)]))
+    assert adapter.execute(_step()).row_count == 1
 
 
 def test_execute_binds_positional_params_and_labels():

@@ -237,20 +237,35 @@ gets a login page.
 read-only by construction and by configuration, and `FONDACO_SQL_DIALECT` must
 name its grammar (`postgres`, `tsql`, `bigquery`), or the app refuses to start.
 
-- **SQL Server** (`pip install 'fondaco[sqlserver]'`, pyodbc): the connection
-  string is forced to `ApplicationIntent=ReadOnly`, opened read-only, with a
-  query timeout and `LOCK_TIMEOUT`. Labels come from `MS_Description` extended
-  properties (`label:internal …`). The login's default schema must be the
-  exposed schema, which is checked on every connection.
-- **BigQuery** (`pip install 'fondaco[bigquery]'`): every statement is dry-run
-  first and runs only if BigQuery itself reports a `SELECT`. Each job carries
-  `maximum_bytes_billed` (`FONDACO_BQ_MAX_BYTES_BILLED`, default 1 GB) and
-  `job_timeout_ms`. Labels come from table and column descriptions. Only tables
-  in one dataset are exposed; views and external tables are not.
+- **SQL Server** (`pip install 'fondaco[sqlserver]'`, pyodbc): on every
+  connection the adapter lists the login's effective permissions and refuses to
+  run anything if the login holds more than reads — a live test showed that
+  `ApplicationIntent=ReadOnly` and ODBC's read-only mode do not stop a write on
+  a standalone server, so the permission check is what enforces read-only. The
+  connection string is still forced to `ApplicationIntent=ReadOnly`, with a
+  query timeout and `LOCK_TIMEOUT`, and every statement is rolled back. Labels
+  come from `MS_Description` extended properties (`label:internal …`). The
+  login's default schema must be the exposed schema, also checked on every
+  connection.
+- **BigQuery** (`pip install 'fondaco[bigquery]'`): the adapter re-parses each
+  template and refuses anything but one `SELECT` before any request; then the
+  statement is dry-run and runs only if BigQuery also reports a `SELECT`. Each
+  job carries `maximum_bytes_billed` (`FONDACO_BQ_MAX_BYTES_BILLED`, default
+  1 GB) and `job_timeout_ms`; every API call, retries included, is bounded by
+  the same timeout, and a job still running at the deadline is cancelled.
+  Labels come from table and column descriptions. Only tables in one dataset
+  are exposed; views and external tables are not.
 
-Grant each adapter a read-only identity anyway (SELECT-only login;
-`bigquery.dataViewer` + `bigquery.jobUser`). The adapter checks are the second
-line of defense.
+Grant each adapter a read-only identity (SELECT-only login;
+`bigquery.dataViewer` + `bigquery.jobUser`). The SQL Server adapter refuses a
+login that can write; the BigQuery adapter cannot inspect IAM, so there the
+identity is the first line of defense and the adapter checks the second.
+
+Both adapters are tested against real engines in
+`.github/workflows/live-adapters.yml`: SQL Server 2022 in a container and
+BigQuery through `goccy/bigquery-emulator`. The emulator cannot show IAM,
+billing caps or the server-side job timeout; those remain covered only by
+tests against a mocked client.
 
 ## What this does NOT protect against
 
