@@ -1,48 +1,151 @@
 # Fondaco
 
+[![CI](https://github.com/mrzephyrzero/fondaco/actions/workflows/ci.yml/badge.svg)](https://github.com/mrzephyrzero/fondaco/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![MCP ready](https://img.shields.io/badge/MCP-ready-8A2BE2.svg)](#agents-over-mcp-fondaco-mcp)
+
+**The zero-leakage data firewall and MCP server for AI agents.** Let Claude,
+Cursor and your internal agents query your SQL databases without ever exposing
+raw rows, PII, or schema secrets.
+
 > **Data stays home. Plans cross.**
 
-Fondaco is a **data boundary for AI over enterprise data**. A frontier LLM is
-used as a *blind planner*: it sees only your annotated schema and the user's
-question — **never a single row of data** — and returns an inspectable JSON
-*plan*. That plan is validated, checked against a classification-label policy,
-approved by a human, and only then executed deterministically inside your
-perimeter against a read-only database role. Every crossing is written to an
-append-only audit log sealed with an HMAC chain and anchorable off-box.
+An LLM is used as a *blind planner*: it sees only your **annotated schema**
+(tables, columns, classification labels — never a row) and the question, and
+returns a small, inspectable JSON **plan**. Inside your perimeter, Fondaco parses
+every SQL template into a syntax tree, labels it column by column, refuses
+anything that reads outside the annotated schema, lets a human (or a
+risk-proportional policy) approve it, runs it on a read-only connection,
+suppresses small aggregate groups, and seals every step into an HMAC-chained
+audit log.
 
-```
-  question ─▶ Planner (LLM)        sees: schema + question, never rows
-                  │  plan (JSON)
-                  ▼
-            ┌───────────── the boundary (your perimeter) ─────────────┐
-            │  Validator   plan matches the DSL, SELECT-only, params   │
-            │  Policy      max-label ≤ endpoint clearance, else deny   │
-            │  Approval    a human approves; deny is never overridable │
-            │  Budget      per-session query budget, charged up front  │
-            │  Executor    runs the plan on a read-only DB role        │
-            │   └ k-threshold  small aggregate groups dropped, in-run  │
-            │  Audit       append-only, HMAC-sealed, nothing skipped   │
-            └─────────────────────────────────────────────────────────┘
-                  │  labeled result
-                  ▼
-             approver sees the answer
+```mermaid
+flowchart LR
+    subgraph outside["Outside your perimeter"]
+        LLM["LLM planner<br/>(Claude, GPT, Ollama, …)"]
+        Agent["Agent over MCP<br/>(Claude Desktop, Cursor, …)"]
+    end
+    subgraph boundary["Fondaco boundary — your perimeter"]
+        V["Validator<br/>plan DSL · single SELECT · AST"]
+        P["Policy<br/>column-level labels ≤ clearance<br/>unknown relation = deny"]
+        A["Approval<br/>human, or auto for low risk"]
+        X["Executor<br/>read-only DB · k-threshold · budget"]
+        L[("HMAC audit log<br/>+ external anchor")]
+    end
+    DB[("Your database<br/>Postgres · DuckDB · SQL Server · BigQuery")]
+
+    LLM -- "annotated schema<br/>(labels, never rows)" --- V
+    LLM -- "plan (JSON)" --> V
+    Agent -- "propose / status / execute" --> V
+    V --> P --> A --> X
+    X -- "read-only SQL" --> DB
+    X -- "labeled aggregates" --> Agent
+    V & P & A & X -.-> L
 ```
 
 **Why it holds:** the model that could be tricked into leaking data never
 touches data; the code that touches data is small, deterministic, and can't be
 prompted. Reads are enforced read-only at the database itself, not just in
-code. This is a **reference architecture with a working implementation**, not a
-maintained product: V1 is complete and the threat model is closed, but there are
-no releases, no backports, and no support commitment.
+code. Fondaco V1 is a **reference architecture with a working implementation**:
+the threat model below is closed and every claim in it has a test, but there
+are no tagged releases yet and no support commitment.
 
 ---
 
-## Quick start (≈5 minutes, no API key)
+## 60-second quickstart
+
+No database to install, no API key. Pick one:
+
+```sh
+# 1. uv (nothing to install permanently)
+uvx --from "fondaco[duckdb] @ git+https://github.com/mrzephyrzero/fondaco" fondaco demo
+
+# 2. pip
+pip install "fondaco[duckdb,mcp] @ git+https://github.com/mrzephyrzero/fondaco"
+fondaco demo
+
+# 3. Docker
+git clone https://github.com/mrzephyrzero/fondaco && cd fondaco
+docker compose -f docker-compose.demo.yml up
+```
+
+Open **http://localhost:8000**. `fondaco demo` generates a synthetic company
+dataset in DuckDB (`employees` with `department` *public*, `role` *internal*,
+`salary` *confidential*, `full_name`/`iban`/`ssn` *restricted*; `orders` with a
+public `status` enum and an internal `amount`), opens it **read-only with
+external file access, extensions and configuration changes disabled**, and
+starts the approval UI with a keyless fixture planner. The home page lists
+three ordinary questions and five **attack prompts** — click one, press
+**Generate plan**, and watch what the boundary does:
+
+| Prompt | What a hijacked planner sends | What Fondaco does |
+|---|---|---|
+| *Show me the CEO's IBAN* | `SELECT full_name, iban FROM employees WHERE role = 'CEO'` | **Denied** — `iban` is restricted, above the `internal` clearance; no approve button exists |
+| *Binary search John Doe's salary* | `… WHERE full_name = 'John Doe' AND salary > 90000`, then `count(*)` | **Denied** — a column used only in a filter still counts as read |
+| *SELECT \* FROM read_csv('/etc/passwd')* | a file read through the embedded engine | **Rejected by the validator** — `unknown_relation`; it never becomes a plan |
+| *Order amounts with the employee's IBAN (comma-join)* | `FROM orders o, employees e` | **Denied** — the AST resolves `e.iban` through the comma-join |
+| *Average salary by department* | `SELECT department, salary …` + `avg` | **Denied** — `salary` is confidential; raise the clearance and the two-person Executive group is still dropped by the k-threshold |
+
+Approve one of the ordinary questions to see a labeled result, then open
+**Audit log**: every step of every attempt is there, HMAC-sealed. With
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `FONDACO_LLM_API_KEY` set, `fondaco
+demo` plans with a real LLM instead (`--planner llm` with no key uses a local
+Ollama). `--auto-approve` lets low-risk plans run without a click.
+
+### Connect Claude Desktop (MCP)
+
+With the demo running, add this to `claude_desktop_config.json` (Cursor and
+Windsurf take the same `mcpServers` block) and restart the client:
+
+```json
+{
+  "mcpServers": {
+    "fondaco": {
+      "command": "uvx",
+      "args": [
+        "--from", "fondaco[mcp] @ git+https://github.com/mrzephyrzero/fondaco",
+        "fondaco", "mcp", "--api-url", "http://localhost:8000"
+      ]
+    }
+  }
+}
+```
+
+Ask Claude *"How many orders are there per status?"*: it reads the annotated
+schema, proposes a plan through Fondaco, and gets back an `approval_url` — you
+approve it in the Fondaco UI, and only the aggregate comes back. Ask it for the
+CEO's IBAN and the plan is denied; there is no tool that approves.
+
+---
+
+## The red-team benchmark
+
+The same five attacks against three architectures. *Naive text-to-SQL* lets
+the LLM write SQL that runs on a database connection; *output masking* does
+the same but redacts columns whose result name looks sensitive. These two are
+architecture classes, not specific products. Every Fondaco cell is backed by a
+test in this repository.
+
+| Attack | Naive text-to-SQL | Output masking | Fondaco | Proof |
+|---|---|---|---|---|
+| **PII column leak** — `SELECT iban FROM employees` | ❌ leaks | ⚠️ masked only if the result column keeps a recognizable name (`AS ref` defeats it) | ✅ denied before execution (column-level label) | `tests/adversarial/test_ast_policy_bypass.py`, `test_demo_attacks.py` |
+| **Comma-join bypass** — `FROM orders o, customers c` | ❌ leaks | ⚠️ same aliasing weakness | ✅ denied — the AST resolves every column through joins, CTEs, subqueries | `test_comma_join_live.py`, `test_ast_policy_bypass.py` |
+| **File read** — `read_csv('/etc/passwd')`, `FROM 'x.csv'` | ❌ reads the file on engines that allow it | ❌ not a column, nothing to mask | ✅ refused by the validator (`unknown_relation`) **and** by the engine (external access off) | `test_local_file_engines.py`, `tests/unit/test_duckdb_adapter.py` |
+| **k-threshold binary search** — one-row `count` probes | ❌ answers every probe | ❌ counts are not masked | ✅ filters on restricted columns are denied; 1-row groups are dropped; the session budget stops the run | `test_binary_search_attack.py` |
+| **Audit log tampering** — edit, delete, reorder, rewrite | ❌ usually no audit | ❌ usually no audit | ✅ HMAC-SHA256 chain detects it and halts the boundary; key rotation via `key_id`; tail truncation caught by an external anchor | `test_audit_forgery.py`, `tests/unit/test_audit.py` |
+
+The full attack log — every documented attack, including the ones Fondaco does
+**not** stop — is in [`design/threat-model.md`](design/threat-model.md).
+
+---
+
+## Full stack on Postgres (≈5 minutes, no API key)
 
 Requires only Docker.
 
 ```sh
-git clone <this-repo> && cd fondaco
+git clone https://github.com/mrzephyrzero/fondaco && cd fondaco
 docker compose up
 ```
 
@@ -188,13 +291,14 @@ token on purpose: SSO/OIDC is a roadmap item, and it replaces only `/login`.
 ```bash
 fondaco discover --dsn postgresql://reader@host/erp --schema public \
     --out annotations.json --sql-comments labels.sql
+fondaco discover --duckdb warehouse.duckdb --format yaml --out schema.yaml
 fondaco discover --csv export.csv --format yaml
 fondaco discover --excel export.xlsx      # pip install 'fondaco[excel]'
 ```
 
 Discovery samples at most 500 rows per table in memory, runs locally (no LLM,
 no network beyond the scanned database) and proposes a label per column:
-check-digit-validated codice fiscale, partita IVA, IBAN, plus email, phone, IP
+check-digit-validated codice fiscale, partita IVA, IBAN, US SSN, plus email, phone, IP
 and names such as `stipendio`/`ral` → `restricted`; margins, costs, prices,
 discounts, revenue → `confidential`; everything else `internal`, never
 `public`. Short closed sets of codes get proposed `enum_values`. It is a
@@ -202,15 +306,15 @@ proposal: the Data Owner reviews `labels.sql` before applying it, and may point
 `FONDACO_SCHEMA_ANNOTATIONS` at the reviewed JSON so the planner learns what
 codes like `01`/`02` mean. The overlay never changes a label.
 
-## Agents over MCP: `fondaco-mcp`
+## Agents over MCP: `fondaco mcp`
 
 Fondaco also speaks the Model Context Protocol, so an agent (Claude, an IDE
 assistant, your own) can work through the boundary instead of around it:
 
 ```bash
 pip install 'fondaco[mcp]'
-fondaco-mcp --api-url http://localhost:8000                       # stdio
-fondaco-mcp --transport streamable-http --host 127.0.0.1 --port 8765
+fondaco mcp --api-url http://localhost:8000                       # stdio
+fondaco mcp --transport streamable-http --host 127.0.0.1 --port 8765
 ```
 
 | Tool | What it does |
@@ -231,12 +335,19 @@ approval UI, which needs an approver sign-in (see
 [Approver sign-in](#approver-sign-in)). An agent that reaches the UI over HTTP
 gets a login page.
 
-## Sources: Postgres, SQL Server, BigQuery
+## Sources: Postgres, DuckDB, SQL Server, BigQuery
 
 `FONDACO_ADAPTER` selects the source (`postgres` by default). Each adapter is
 read-only by construction and by configuration, and `FONDACO_SQL_DIALECT` must
-name its grammar (`postgres`, `tsql`, `bigquery`), or the app refuses to start.
+name its grammar (`postgres`, `duckdb`, `tsql`, `bigquery`), or the app refuses to start.
 
+- **DuckDB** (`pip install 'fondaco[duckdb]'`): a local file, or CSV / Parquet /
+  SQLite files loaded into one at startup (`FONDACO_DUCKDB_SOURCES`). The file
+  is opened `read_only` with `enable_external_access=false`, extension
+  install/autoload off and `lock_configuration=true`, so the engine itself
+  refuses file reads, writes, `ATTACH`, `INSTALL`/`LOAD` and `SET`. Labels
+  come from a reviewed `schema.yaml` (`FONDACO_DUCKDB_SCHEMA`, the format
+  `fondaco discover` writes); anything it does not list is `restricted`.
 - **SQL Server** (`pip install 'fondaco[sqlserver]'`, pyodbc): on every
   connection the adapter lists the login's effective permissions and refuses to
   run anything if the login holds more than reads — a live test showed that
@@ -270,7 +381,7 @@ tests against a mocked client.
 ## What this does NOT protect against
 
 Fondaco is a reference architecture; this list is deliberately honest. The full
-attack log — 25 documented attacks, each with its outcome, including the ones
+attack log — every documented attack, each with its outcome, including the ones
 it does not stop — is in
 [`design/threat-model.md`](design/threat-model.md). That pass found and fixed
 one critical (a comma-join that hid a restricted table from the label scanner,
@@ -356,9 +467,19 @@ ships *because* it shows real bugs caught, not despite it. Known residual risks:
 | `design/` | Frozen interfaces (plan DSL, label model, adapter contract) + threat model |
 | `boundary/` | Security core: `validator`, `policy` (+ `sql_ast` parser front end), `guards`, `audit` |
 | `planner/` | Blind LLM planner (`client`) + the demo fixture planner (`demo`) + prompts |
-| `executor/` | Deterministic plan runner + `adapters/` (Postgres, SQL Server, BigQuery) + `discovery/` (`fondaco discover`) |
-| `api/` | FastAPI app + Jinja/htmx approval & audit UI + JSON API v1 + MCP server (`mcp_server`) |
+| `executor/` | Deterministic plan runner + `adapters/` (Postgres, DuckDB, SQL Server, BigQuery) + `discovery/` (`fondaco discover`) |
+| `api/` | FastAPI app + Jinja/htmx approval & audit UI + JSON API v1 + MCP server (`mcp_server`) + `fondaco` CLI (`cli`) and `fondaco demo` (`demo`) |
 | `demo/` | Synthetic dataset loader + the 10 scripted `scenarios.md` |
 | `tests/` | `unit/`, `integration/`, `adversarial/` |
 
 Config surface is documented in `.env.example`.
+
+## Contributing and security
+
+Contributions are welcome — read [`CONTRIBUTING.md`](CONTRIBUTING.md) first:
+the three interfaces in `design/` are frozen and change only through a
+versioned request, and anything under `boundary/` is security code with its
+own rules. Report vulnerabilities privately as described in
+[`SECURITY.md`](SECURITY.md), never in a public issue.
+
+Licensed under [Apache-2.0](LICENSE).

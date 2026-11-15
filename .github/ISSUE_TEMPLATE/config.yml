@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/mrzephyrzero/fondaco/security/advisories/new
+    about: Never open a public issue for a security finding. Use private vulnerability reporting (see SECURITY.md).

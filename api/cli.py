@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""`fondaco` — one command, several subcommands.
+"""`fondaco` — one command, four subcommands.
 
+    fondaco demo       zero-config demo: synthetic DuckDB data + the web UI
     fondaco serve      run the boundary (web UI + JSON API) from the environment
     fondaco mcp        MCP server for Claude Desktop, Cursor, … (proxies a boundary)
     fondaco discover   classify a source locally and propose labels
@@ -15,8 +16,9 @@ from __future__ import annotations
 
 import sys
 
-USAGE = """usage: fondaco {serve,mcp,discover} [options]
+USAGE = """usage: fondaco {demo,serve,mcp,discover} [options]
 
+  demo       zero-config demo on synthetic DuckDB data (no database, no API key)
   serve      run the boundary (web UI + JSON API) configured from the environment
   mcp        MCP server (stdio or streamable-http) proxying a running boundary
   discover   classify a source locally and propose a labels file
@@ -52,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         from api.mcp_server import main as mcp
 
         return mcp(rest)
+    if command == "demo":
+        from api.demo import main as demo
+
+        return demo(rest)
     if command == "serve":
         return _serve(rest)
     sys.stderr.write(f"fondaco: unknown command {command!r}\n\n{USAGE}")

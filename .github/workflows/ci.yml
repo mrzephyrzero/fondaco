@@ -39,5 +39,10 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-      - name: Test (with branch coverage of the security core)
+      - name: Test — unit, adversarial, integration, MCP, DuckDB (branch coverage of the security core)
         run: pytest -q --cov=boundary --cov=executor --cov-branch --cov-report=term-missing
+      - name: Smoke-test the CLI and the zero-config demo dataset
+        run: |
+          fondaco --help
+          fondaco demo --build-only --data-dir "$RUNNER_TEMP/demo"
+          fondaco discover --duckdb "$RUNNER_TEMP/demo/demo.duckdb" --format yaml > /dev/null

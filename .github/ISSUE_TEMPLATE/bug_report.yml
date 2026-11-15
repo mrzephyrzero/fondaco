@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+name: Bug report
+description: Something does not work as documented (not a security finding).
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security findings do not belong here.** If the bug lets data cross the
+        boundary, bypasses a label, or weakens the audit log, report it privately
+        (see SECURITY.md). Never paste real data, credentials or keys.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Ideally with `fondaco demo` or the Postgres demo stack. Include the plan JSON if relevant.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - boundary (validator, policy, guards, audit)
+        - executor / adapters
+        - discovery (fondaco discover)
+        - planner
+        - web UI / JSON API
+        - MCP server
+        - demo / docs
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      placeholder: e.g. main @ abc1234
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: OS, Python version, adapter (postgres/duckdb/...), planner (demo/llm)

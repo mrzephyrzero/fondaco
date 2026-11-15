@@ -85,10 +85,10 @@ from planner.client import (
 SESSION_COOKIE = "fondaco_session"
 
 
-def _scripted_questions() -> list[str]:
-    from planner.demo import SCRIPTED_QUESTIONS
+def _scripted_questions(planner: object) -> list[dict]:
+    from planner.demo import scripted_questions
 
-    return list(SCRIPTED_QUESTIONS)
+    return scripted_questions(getattr(planner, "fixture_set", None))
 
 
 _UI_DIR = Path(__file__).parent / "ui"
@@ -397,7 +397,7 @@ def create_app(
                 budget=budget.state(budget_key(current)),
                 k=guard_config.k,
                 demo_mode=demo_mode,
-                scripted=_scripted_questions() if demo_mode else [],
+                scripted=_scripted_questions(planner) if demo_mode else [],
             ),
         )
 

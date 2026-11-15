@@ -61,7 +61,7 @@ New phase → new session. Mid-phase resume → read `STATE.md` first. Never pas
 /tests/
   unit/  integration/  adversarial/
 CLAUDE.md  STATE.md  DECISIONS.md  ROADMAP.md  SECURITY.md  README.md
-LICENSE  NOTICE
+CONTRIBUTING.md  LICENSE  NOTICE  Dockerfile  docker-compose.yml  docker-compose.demo.yml
 ```
 
 **Published vs local.** Everything above is published. The artifacts that served
