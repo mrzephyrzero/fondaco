@@ -81,7 +81,7 @@ def _column_payload(table: Table, column: Column) -> dict:
     return entry
 
 
-def _schema_payload(schema: AnnotatedSchema) -> str:
+def schema_payload(schema: AnnotatedSchema) -> str:
     """Compact JSON view of the schema: metadata and statistics only.
 
     The only values that ever appear are `enum_values` of public/internal
@@ -187,7 +187,7 @@ class PlannerClient:
             {"role": "system", "content": self._system_prompt},
             {
                 "role": "user",
-                "content": f"SCHEMA:\n{_schema_payload(schema)}\n\nQUESTION:\n{question}",
+                "content": f"SCHEMA:\n{schema_payload(schema)}\n\nQUESTION:\n{question}",
             },
         ]
         attempts: list[PlanAttempt] = []
@@ -267,3 +267,7 @@ def client_from_env(transport: httpx.BaseTransport | None = None) -> PlannerClie
         sampling=sampling_from_env(),
         transport=transport,
     )
+
+
+# Kept for callers written before the payload became public API.
+_schema_payload = schema_payload
