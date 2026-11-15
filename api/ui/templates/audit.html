@@ -4,7 +4,7 @@
 <h2>Audit log</h2>
 <p>
   {% if verification.ok %}
-    <span class="allow">✓ hash chain verified</span> <span class="muted">({{ verification.entries }} entries)</span>
+    <span class="allow">✓ HMAC chain verified</span> <span class="muted">({{ verification.entries }} entries, sealing key <code>{{ key_id }}</code>)</span>
   {% else %}
     <span class="deny">✗ CHAIN BROKEN at seq {{ verification.bad_seq }} — {{ verification.reason }}</span>
   {% endif %}
@@ -13,7 +13,7 @@
   <label>event
     <select name="event">
       <option value="">all</option>
-      {% for ev in ['question_received','plan_generated','validation_result','policy_decision','approval','guard_decision','execution_digest'] %}
+      {% for ev in ['question_received','plan_generated','validation_result','policy_decision','approval','guard_decision','execution_digest','anchor_exported'] %}
       <option value="{{ ev }}" {% if ev == event_filter %}selected{% endif %}>{{ ev }}</option>
       {% endfor %}
     </select>
@@ -22,11 +22,12 @@
   <button type="submit">Filter</button>
 </form>
 <table>
-  <tr><th>seq</th><th>time (UTC)</th><th>event</th><th>payload</th><th>plan</th></tr>
+  <tr><th>seq</th><th>time (UTC)</th><th>actor</th><th>event</th><th>payload</th><th>plan</th></tr>
   {% for e in entries %}
   <tr>
     <td>{{ e.seq }}</td>
     <td class="muted">{{ e.ts[:19] }}</td>
+    <td>{{ e.actor }}</td>
     <td><code>{{ e.event }}</code></td>
     <td><code>{{ e.payload | tojson }}</code></td>
     <td>{% if e.payload.plan_id %}<a href="/plans/{{ e.payload.plan_id }}">view</a>{% endif %}</td>

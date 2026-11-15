@@ -81,17 +81,14 @@ COMMENT ON COLUMN stock_movements.quantity IS 'label:internal';
 COMMENT ON COLUMN stock_movements.moved_at IS 'label:internal';
 
 -- employees exists to make the column-level part of the label model visible.
--- The table is labeled 'internal', but salary is 'restricted', and the policy
--- engine takes the max over the table label AND every one of its columns. So
--- *every* query against employees comes out restricted — including
--- `SELECT department FROM employees`, which never touches salary.
---
--- That is the documented over-approximation of label-model.md §4: the scanner
--- does not work out which columns a template reads, so it assumes all of them.
--- It over-restricts, which is the safe direction, and it means a table is only
--- as usable as its most sensitive column. Without a table shaped like this one,
--- nothing in the demo exercises that rule (every other table here has columns
--- at or below its own label, so their column annotations change no decision).
+-- The table is labeled 'internal', but salary is 'restricted'. Labeling is
+-- column-precise (label-model.md §4, "columns read"): the policy engine parses
+-- each template and takes the max over the columns it actually references, so
+-- `SELECT department FROM employees` is internal, while any template that
+-- reads salary — in the select list, or only in a WHERE/ORDER BY/HAVING — is
+-- restricted. Without a table shaped like this one, nothing in the demo
+-- exercises that rule (every other table here has columns at or below its own
+-- label, so their column annotations change no decision).
 CREATE TABLE employees (
     id serial PRIMARY KEY,
     name text NOT NULL,

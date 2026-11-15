@@ -229,7 +229,7 @@ def test_validator_never_raises_on_garbage():
 def test_internal_fault_invalidates_the_plan(monkeypatch):
     import boundary.validator as validator
 
-    def explode(plan):
+    def explode(plan, *args):
         raise RuntimeError("customer 4111-1111-1111-1111")
 
     monkeypatch.setattr(validator, "_structural_errors", explode)

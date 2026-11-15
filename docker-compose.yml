@@ -22,6 +22,12 @@ services:
       FONDACO_LLM_TEMPERATURE: ${FONDACO_LLM_TEMPERATURE:-0}
       FONDACO_EGRESS_CLEARANCE: ${FONDACO_EGRESS_CLEARANCE:-internal}
       FONDACO_AUDIT_LOG: /data/audit.jsonl
+      # Audit HMAC key. The default below is PUBLISHED and DEV-ONLY: under it the
+      # audit seal proves nothing, because anyone can recompute it. Set your own
+      # secret (>= 32 bytes) in .env for anything but the local demo.
+      FONDACO_AUDIT_HMAC_KEY: ${FONDACO_AUDIT_HMAC_KEY:-dev-only-insecure-published-audit-key-change-me}
+      FONDACO_AUDIT_HMAC_KEY_ID: ${FONDACO_AUDIT_HMAC_KEY_ID:-dev}
+      FONDACO_SQL_DIALECT: ${FONDACO_SQL_DIALECT:-postgres}
     volumes:
       - audit_data:/data
     extra_hosts:

@@ -156,7 +156,8 @@ class PostgresAdapter:
                 # until restart — and the label attached here could disagree
                 # with the one the policy engine evaluated from a fresh read.
                 labels = schema_labels_dict(self._read_schema(cur))
-                label = query_label(step["template"], labels).name.lower()
+                # The adapter knows its own grammar; it never follows FONDACO_SQL_DIALECT.
+                label = query_label(step["template"], labels, dialect="postgres").name.lower()
                 cur.execute(step["template"], params)
                 if cur.description is None:
                     raise AdapterError("execution", "statement returned no result set")

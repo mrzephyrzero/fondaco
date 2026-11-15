@@ -53,5 +53,3 @@ Items deferred out of scope during development land here with a one-line note.
 - Per-user identity & authorization (V1 has no auth; the approver is
   self-declared, the query budget is per-session-cookie). A real deployment
   needs identity — noted in the threat model as a known limitation.
-- Audit head-anchoring (external notarization of the latest hash) to close the
-  tail-truncation residual risk.

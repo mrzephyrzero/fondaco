@@ -18,7 +18,12 @@ from boundary.validator import validate_plan
 LABELS = {
     "orders": {
         "label": "internal",
-        "columns": {"region": "internal", "customer_id": "internal", "total_amount": "internal"},
+        "columns": {
+            "region": "internal",
+            "customer_id": "internal",
+            "total_amount": "internal",
+            "order_date": "internal",
+        },
     },
     "customers": {
         "label": "restricted",
