@@ -159,6 +159,14 @@ the scripted questions below — **no LLM is involved** — but they cross the e
 same validator, policy, executor, guards, and audit as a real request. A banner
 in the UI says so. To use a real planner, see [Using a real planner](#using-a-real-planner).
 
+The container runs as an unprivileged `fondaco` user (uid 10001) that owns
+only `/data`. A volume created by an image built before that change holds
+root-owned files the app can no longer append to, so every request fails
+closed; hand the volume over once with
+`docker compose run --rm --user root app chown -R fondaco: /data`
+(`demo` instead of `app` with `-f docker-compose.demo.yml`), or start fresh
+with `docker compose down -v`.
+
 ### Scripted walkthrough
 
 On the home page, click one of the scripted questions (or type it) and press

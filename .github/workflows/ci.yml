@@ -46,3 +46,27 @@ jobs:
           fondaco --help
           fondaco demo --build-only --data-dir "$RUNNER_TEMP/demo"
           fondaco discover --duckdb "$RUNNER_TEMP/demo/demo.duckdb" --format yaml > /dev/null
+
+  docker:
+    # The image is the install story for most readers: build it and run the
+    # zero-config demo in it, as docker-compose.demo.yml does.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t fondaco:ci .
+      - name: Smoke-test the demo in the container
+        run: |
+          docker run -d --name demo -p 127.0.0.1:8000:8000 fondaco:ci \
+            fondaco demo --host 0.0.0.0 --port 8000 --data-dir /data
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/health
+          # Unprivileged, and the UI demands a sign-in.
+          test "$(docker exec demo id -u)" = 10001
+          curl -fsS http://127.0.0.1:8000/login | grep -q 'name="token"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 303
+          docker logs demo | grep -q 'approver token'
+          docker exec demo fondaco mcp --help > /dev/null
+      - name: Container logs
+        if: always()
+        run: docker logs demo || true
