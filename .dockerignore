@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+#
+# The image COPYs only the four packages it runs; this keeps everything else
+# out of the build context, above all .env (API keys, HMAC key) and the
+# local-only drafts, so a future broader COPY can never bake them in.
+.git
+.github
+.env
+.env.*
+*.local.md
+IMPLEMENTATION_PLAN.md
+LAUNCH_DRAFTS.md
+docs/
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+docker-compose.override.yml
