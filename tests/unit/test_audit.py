@@ -198,7 +198,7 @@ def test_no_mutation_api():
     exposed = {name for name in dir(AuditLog) if not name.startswith("_")}
     # append-only + read-only views + anchoring; nothing updates or deletes.
     assert exposed == {
-        "append", "verify", "verify_chain", "entries", "head", "anchor",
+        "append", "verify", "verify_chain", "entries", "head", "anchor", "export_anchor",
         "verify_against_anchor", "halted", "key_id",
     }  # fmt: skip
 
@@ -396,6 +396,15 @@ def test_anchor_exports_head_and_records_the_export(tmp_path):
     last = log.entries()[-1]
     assert last["event"] == EVENT_ANCHOR_EXPORTED
     assert last["payload"] == {"anchored_seq": 2, "anchored_mac": head.mac}
+    assert log.verify_against_anchor(head).ok is True
+
+
+def test_export_anchor_is_the_periodic_anchoring_entry_point(tmp_path):
+    log = _seeded_log(tmp_path / "audit.jsonl")
+    sink = FileAnchorSink(tmp_path / "anchors.jsonl")
+    head = log.export_anchor(sink)
+    assert sink.latest() == head
+    assert head.key_id == log.key_id
     assert log.verify_against_anchor(head).ok is True
 
 

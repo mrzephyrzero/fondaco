@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the Fondaco contributors
-"""Where discovery samples from: a Postgres schema, a CSV file, an Excel workbook.
+"""Where discovery samples from: Postgres, DuckDB, a CSV file, an Excel workbook.
 
 Every source reads at most MAX_SAMPLE_ROWS rows per table into memory and
 hands them straight to the classifier; nothing is written anywhere. The
@@ -68,6 +68,50 @@ def discover_postgres(
             return findings
     except psycopg.Error as exc:
         raise DiscoveryError(f"postgres source failed: {type(exc).__name__}") from exc
+
+
+def discover_duckdb(
+    path: str | Path, max_rows: int = MAX_SAMPLE_ROWS, timeout_s: int = 30
+) -> list[TableFinding]:
+    """Sample every base table of a DuckDB file, opened with the adapter's lockdown."""
+    import threading
+
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise DiscoveryError("DuckDB source needs: pip install 'fondaco[duckdb]'") from exc
+    from executor.adapters.duckdb_adapter import LOCKED_CONFIG, SCHEMA_SQL, quote_ident
+
+    path = Path(path)
+    if not path.is_file():
+        raise DiscoveryError("duckdb source: file not found")
+    limit = _cap(max_rows)
+    try:
+        conn = duckdb.connect(str(path), read_only=True, config=dict(LOCKED_CONFIG))
+    except duckdb.Error as exc:
+        raise DiscoveryError(f"duckdb source failed: {type(exc).__name__}") from exc
+    timer = threading.Timer(float(timeout_s), conn.interrupt)
+    timer.start()
+    try:
+        tables: dict[str, list[tuple[str, str]]] = {}
+        for table, column, sql_type in conn.execute(SCHEMA_SQL).fetchall():
+            tables.setdefault(table, []).append((column, str(sql_type)))
+        findings = []
+        for table, columns in tables.items():
+            cols = ", ".join(quote_ident(c) for c, _ in columns)
+            # Identifiers come from the catalog and are quoted; the limit is an int.
+            rows = conn.execute(
+                f"SELECT {cols} FROM {quote_ident(table)} "  # noqa: S608
+                f"USING SAMPLE reservoir({int(limit)} ROWS) REPEATABLE (0)"
+            ).fetchall()
+            findings.append(classify_table(table, columns, rows, source=f"duckdb:{path.name}"))
+            del rows  # the sample lives only as long as its classification
+        return findings
+    except duckdb.Error as exc:
+        raise DiscoveryError(f"duckdb source failed: {type(exc).__name__}") from exc
+    finally:
+        timer.cancel()
+        conn.close()
 
 
 def _reservoir(rows, limit: int) -> list:

@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+#
+# Zero-config demo: synthetic data in DuckDB, no Postgres, no API key.
+#
+#   docker compose -f docker-compose.demo.yml up
+#
+# then open http://localhost:8000. Same image as docker-compose.yml; only the
+# command differs. Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or FONDACO_LLM_*)
+# in your shell or .env to plan with a real LLM instead of the fixtures.
+services:
+  demo:
+    build: .
+    command: ["fondaco", "demo", "--host", "0.0.0.0", "--port", "8000", "--data-dir", "/data"]
+    ports:
+      # Loopback only: the demo UI has no TLS.
+      - "127.0.0.1:8000:8000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      FONDACO_LLM_API_KEY: ${FONDACO_LLM_API_KEY:-}
+      FONDACO_LLM_MODEL: ${FONDACO_LLM_MODEL:-}
+      FONDACO_AUTO_APPROVE_ENABLED: ${FONDACO_AUTO_APPROVE_ENABLED:-false}
+    volumes:
+      - demo_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  demo_data:

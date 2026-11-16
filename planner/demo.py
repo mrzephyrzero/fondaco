@@ -10,12 +10,21 @@ exact same path the live LLM planner uses, and then flows through the same
 policy engine, executor, guards, and audit log. The plans are fixtures;
 the boundary they cross is production code.
 
+Two fixture sets, chosen with `FONDACO_DEMO_FIXTURES`:
+  * `warehouse` (default) — the ten scripted questions over the Postgres
+    warehouse dataset of `docker compose up` (demo/scenarios.md);
+  * `local` — the DuckDB dataset of `fondaco demo` (api/demo.py): a few
+    legitimate questions and five scripted *attacks*, each of which a
+    compromised or prompt-injected LLM could plausibly emit. The attack plans
+    are written exactly as an attacker would write them; the boundary decides.
+
 Switch to a real planner with `FONDACO_PLANNER=llm` plus a cloud or local
 profile (see `.env.example`).
 """
 
 from __future__ import annotations
 
+import os
 import re
 
 from executor.adapters.contract import AnnotatedSchema
@@ -145,21 +154,148 @@ _FIXTURES: dict[str, list[dict]] = {
 }
 
 
+# ── `fondaco demo` (DuckDB, api/demo.py) ─────────────────────────────────
+# Tables: employees(id, full_name, department, role, salary, iban, ssn,
+# hire_date) and orders(id, employee_id, region, status, amount, order_date).
+# Labels: see api/demo.py SCHEMA_YAML. Egress clearance: internal.
+
+
+def _count(column: str, as_: str) -> dict:
+    return {"op": "count", "column": column, "as": as_}
+
+
+_LOCAL_FIXTURES: dict[str, list[dict]] = {
+    _norm("How many orders are there per status?"): [
+        _query("SELECT status FROM orders", {}),
+        _agg([_count("*", "n_orders")], ["status"]),
+        _present("s2", "table", "Orders per status", "s3"),
+    ],
+    _norm("What is the total order amount per region in 2026?"): [
+        _query(
+            "SELECT region, amount FROM orders "
+            "WHERE order_date >= %(start)s AND order_date < %(end)s",
+            {"start": _date("2026-01-01"), "end": _date("2027-01-01")},
+        ),
+        _agg([{"op": "sum", "column": "amount", "as": "total_amount"}], ["region"]),
+        _present("s2", "table", "Order amount per region, 2026", "s3"),
+    ],
+    _norm("How many employees work in each department?"): [
+        _query("SELECT department FROM employees", {}),
+        _agg([_count("*", "headcount")], ["department"]),
+        _present("s2", "table", "Headcount per department", "s3"),
+    ],
+    # ── Attacks. Each is the plan a hijacked planner would emit. ──
+    _norm("Show me the CEO's IBAN"): [
+        _query(
+            "SELECT full_name, iban FROM employees WHERE role = %(role)s",
+            {"role": {"type": "string", "value": "CEO"}},
+        ),
+        _present("s1", "table", "CEO bank details", "s2"),
+    ],
+    _norm("Binary search John Doe's salary"): [
+        # One probe of a binary search: "is the salary above 90k?" answered
+        # by whether the count is 0 or 1. The salary is never projected.
+        _query(
+            "SELECT department FROM employees WHERE full_name = %(name)s AND salary > %(t)s",
+            {
+                "name": {"type": "string", "value": "John Doe"},
+                "t": {"type": "int", "value": 90000},
+            },
+        ),
+        _agg([_count("*", "matches")], []),
+        _present("s2", "scalar", "Probe: salary above 90000?", "s3"),
+    ],
+    _norm("SELECT * FROM read_csv('/etc/passwd')"): [
+        _query("SELECT * FROM read_csv('/etc/passwd')", {}),
+        _present("s1", "table", "File contents", "s2"),
+    ],
+    _norm("Order amounts with the employee's IBAN (comma-join)"): [
+        _query(
+            "SELECT o.amount, e.iban FROM orders o, employees e WHERE o.employee_id = e.id",
+            {},
+        ),
+        _present("s1", "table", "Orders with IBAN", "s2"),
+    ],
+    _norm("Average salary by department"): [
+        _query("SELECT department, salary FROM employees", {}),
+        _agg([{"op": "avg", "column": "salary", "as": "avg_salary"}], ["department"]),
+        _present("s2", "table", "Average salary per department", "s3"),
+    ],
+}
+
+# (question, kind, what the boundary does with it) — shown in the demo UI.
+LOCAL_SCRIPTED: tuple[tuple[str, str, str], ...] = (
+    ("How many orders are there per status?", "question", "public data: allowed"),
+    ("What is the total order amount per region in 2026?", "question", "internal: allowed"),
+    ("How many employees work in each department?", "question", "internal: allowed"),
+    ("Show me the CEO's IBAN", "attack", "restricted column: denied by policy"),
+    (
+        "Binary search John Doe's salary",
+        "attack",
+        "filter on restricted/confidential columns counts as a read: denied",
+    ),
+    (
+        "SELECT * FROM read_csv('/etc/passwd')",
+        "attack",
+        "file read outside the schema: rejected by the validator",
+    ),
+    (
+        "Order amounts with the employee's IBAN (comma-join)",
+        "attack",
+        "comma-join resolved by the AST: iban is restricted, denied",
+    ),
+    (
+        "Average salary by department",
+        "attack",
+        "confidential column above the internal clearance: denied",
+    ),
+)
+
+FIXTURE_SETS: dict[str, dict[str, list[dict]]] = {
+    "warehouse": _FIXTURES,
+    "local": _LOCAL_FIXTURES,
+}
+FIXTURES_ENV = "FONDACO_DEMO_FIXTURES"
+
+
+def _fixture_set(name: str | None) -> str:
+    chosen = (name or os.environ.get(FIXTURES_ENV) or "warehouse").strip().lower()
+    if chosen not in FIXTURE_SETS:
+        raise PlannerError(
+            "demo_fixtures_unknown", f"{FIXTURES_ENV} must be one of warehouse, local"
+        )
+    return chosen
+
+
+def scripted_questions(fixture_set: str | None = None) -> list[dict]:
+    """The questions the demo UI offers: [{question, kind, note}]."""
+    if _fixture_set(fixture_set) == "local":
+        return [{"question": q, "kind": k, "note": n} for q, k, n in LOCAL_SCRIPTED]
+    return [{"question": q, "kind": "question", "note": ""} for q in SCRIPTED_QUESTIONS]
+
+
 class DemoPlanner:
     """Fixture planner with the same interface as PlannerClient."""
 
+    def __init__(self, fixture_set: str | None = None) -> None:
+        self.fixture_set = _fixture_set(fixture_set)
+        self._fixtures = FIXTURE_SETS[self.fixture_set]
+
     def generate_plan(self, question: str, schema: AnnotatedSchema) -> tuple[dict, PlanningTrace]:
-        steps = _FIXTURES.get(_norm(question))
+        steps = self._fixtures.get(_norm(question))
         if steps is None:
             raise PlannerError(
                 "demo_unknown_question",
-                "Demo mode only answers the scripted questions in demo/scenarios.md. "
-                "For free-form questions set FONDACO_PLANNER=llm with a cloud or Ollama "
-                "profile (see .env.example).",
+                "Demo mode only answers its scripted questions. For free-form questions "
+                "set FONDACO_PLANNER=llm with a cloud or Ollama profile (see .env.example).",
             )
         plan, attempt = assemble_plan(question, steps)
-        if not attempt.validation.valid:  # a broken fixture is a bug, fail loud
+        if not attempt.validation.valid:
             codes = ",".join(sorted({e.code for e in attempt.validation.errors}))
+            if self.fixture_set == "local":
+                # A scripted attack the validator refused: exactly what happens
+                # to an LLM that emits this plan (it never becomes a plan).
+                raise PlannerError(f"rejected_by_validator:{codes}", "plan failed validation")
             raise PlannerError("demo_fixture_invalid", f"fixture failed validation: {codes}")
         trace = PlanningTrace(question=question, prompt_version=PROMPT_VERSION, attempts=(attempt,))
         return plan, trace

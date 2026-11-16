@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+name: Feature request
+description: Propose an adapter, a defense, or an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How you would solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Effect on the boundary
+      description: |
+        Does this change what crosses the boundary, what the planner sees, or
+        one of the frozen interfaces in design/? How would it fail closed?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and ROADMAP.md.
+          required: true

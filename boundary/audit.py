@@ -526,6 +526,9 @@ class AuditLog:
         self.append(EVENT_ANCHOR_EXPORTED, {"anchored_seq": head.seq, "anchored_mac": head.mac})
         return head
 
+    # The name the governance docs use for periodic anchoring (cron → sink).
+    export_anchor = anchor
+
     def verify_against_anchor(self, anchor: Anchor) -> VerifyResult:
         """The chain verifies *and* still contains the anchored entry, unchanged."""
         result = self.verify_chain()

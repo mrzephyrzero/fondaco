@@ -31,7 +31,14 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
-SUPPORTED_DIALECTS: tuple[str, ...] = ("postgres", "duckdb", "tsql", "bigquery", "snowflake")
+SUPPORTED_DIALECTS: tuple[str, ...] = (
+    "postgres",
+    "duckdb",
+    "sqlite",
+    "tsql",
+    "bigquery",
+    "snowflake",
+)
 DEFAULT_DIALECT = "postgres"
 DIALECT_ENV = "FONDACO_SQL_DIALECT"
 
@@ -39,6 +46,9 @@ PLACEHOLDER_RE = re.compile(r"%\(([A-Za-z_][A-Za-z0-9_]*)\)s")
 # Stand-in for each %(name)s while parsing. `?` parses as a positional
 # placeholder in every supported dialect and can never name a column or table.
 _PARSE_PLACEHOLDER = "?"
+# A relation name containing any of these is a file path or URL, not a table:
+# DuckDB reads `FROM 'data.csv'` / `FROM "/etc/passwd"` as a file scan.
+_PATH_CHARS = frozenset("/\\:.")
 
 
 class SqlRejected(Exception):
@@ -172,7 +182,11 @@ def foreign_relations(tree: exp.Expression) -> tuple[str, ...]:
     * a schema- or catalog-qualified name — ``pg_catalog.pg_user``,
       ``information_schema.tables``, ``public.customers``,
       ``project.dataset.table``. The annotated schema is a flat namespace, so a
-      qualified name is outside it by definition.
+      qualified name is outside it by definition;
+    * a name shaped like a file path or URL — ``'/etc/passwd'``,
+      ``"data.csv"``, ``'s3://bucket/x'`` — which DuckDB would otherwise
+      resolve as a replacement scan of that file. A real table whose quoted
+      name contains ``/ \\ : .`` is refused too: fail closed, never guess.
 
     Unknown *bare* names need the schema and are checked by the policy engine.
     """
@@ -184,6 +198,8 @@ def foreign_relations(tree: exp.Expression) -> tuple[str, ...]:
                 found.append(f"function:{_relation_func_name(inner)}")
             elif node.args.get("db") or node.args.get("catalog"):
                 found.append(node.sql()[:128])
+            elif _PATH_CHARS.intersection(inner.name):
+                found.append(f"path:{inner.name[:128]}")
         elif isinstance(node, exp.UDTF):
             if isinstance(node, exp.Lateral) and isinstance(node.this, exp.Subquery):
                 continue

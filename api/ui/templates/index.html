@@ -14,13 +14,23 @@
 </form>
 
 {% if demo_mode and scripted %}
-<p class="muted">Demo mode answers these scripted questions — click one to fill the box
-  (the last one is deliberately refused by policy):</p>
+{% set questions = scripted | selectattr("kind", "equalto", "question") | list %}
+{% set attacks = scripted | selectattr("kind", "equalto", "attack") | list %}
+<p class="muted">Demo mode answers these scripted questions — click one to fill the box{% if not attacks %}
+  (the last one is deliberately refused by policy){% endif %}:</p>
 <ul>
-  {% for q in scripted %}
-  <li><a href="#" onclick="document.getElementById('question').value=this.textContent;return false;">{{ q }}</a></li>
+  {% for q in questions %}
+  <li><a href="#" class="scripted" onclick="document.getElementById('question').value=this.textContent;return false;">{{ q.question }}</a>{% if q.note %} <span class="muted">— {{ q.note }}</span>{% endif %}</li>
   {% endfor %}
 </ul>
+{% if attacks %}
+<p class="muted">Attack prompts — what a hijacked or prompt-injected planner would send. Click one, generate the plan, and watch the boundary refuse it:</p>
+<ul>
+  {% for q in attacks %}
+  <li><a href="#" class="scripted attack" onclick="document.getElementById('question').value=this.textContent;return false;">{{ q.question }}</a> <span class="muted">— {{ q.note }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
 {% endif %}
 
 <h2>Plans</h2>
