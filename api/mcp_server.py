@@ -100,12 +100,21 @@ def _with_approval_url(body: dict, public_url: str) -> dict:
     return body
 
 
+def _package_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("fondaco")
+    except PackageNotFoundError:  # a source checkout that was never installed
+        return "0+unknown"
+
+
 def build_server(api: FondacoAPI, public_url: str = DEFAULT_API_URL):
     """The MCP server object, with the four tools bound to `api`."""
     from mcp.server.mcpserver import MCPServer
     from mcp.types import ToolAnnotations
 
-    server = MCPServer(name="fondaco", instructions=INSTRUCTIONS, version="0.0.1")
+    server = MCPServer(name="fondaco", instructions=INSTRUCTIONS, version=_package_version())
     read_only = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
     @server.tool(

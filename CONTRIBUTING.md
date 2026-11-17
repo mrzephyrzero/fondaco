@@ -6,6 +6,8 @@ change without re-deriving the whole threat model.
 
 ## Before you start
 
+- **Be decent.** Participation is governed by the
+  [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 - **Security findings never go in a public issue or PR.** Use GitHub's private
   vulnerability reporting, as described in [`SECURITY.md`](SECURITY.md).
 - **Open an issue before a large change.** New adapters, new plan-DSL features

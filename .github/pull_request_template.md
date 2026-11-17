@@ -5,6 +5,7 @@
 - [ ] `ruff check .` and `ruff format --check .`
 - [ ] `pytest` (say whether the Postgres integration tests ran)
 - [ ] New defenses have an adversarial test that fails without them
+- [ ] User-visible change? Add a line under `[Unreleased]` in `CHANGELOG.md`
 
 ## Boundary impact
 

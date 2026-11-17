@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the Fondaco contributors
+# Weekly update PRs for the GitHub Actions the workflows pin. Python
+# dependencies are ranges in pyproject.toml with no lockfile, so CI already
+# runs against the newest allowed versions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
