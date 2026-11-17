@@ -27,7 +27,7 @@ jobs:
       FONDACO_TEST_ADMIN_DSN: postgresql://fondaco:fondaco-dev@localhost:5432/fondaco
       FONDACO_TEST_DSN: postgresql://fondaco_ro:fondaco-ro-dev@localhost:5432/fondaco
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -52,7 +52,7 @@ jobs:
     # zero-config demo in it, as docker-compose.demo.yml does.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the image
         run: docker build -t fondaco:ci .
       - name: Smoke-test the demo in the container
