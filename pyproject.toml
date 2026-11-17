@@ -2,11 +2,30 @@
 # Copyright 2026 the Fondaco contributors
 [project]
 name = "fondaco"
-version = "0.0.1"
-description = "Data boundary for AI over enterprise data. Data stays home. Plans cross."
+version = "1.0.0"
+description = "A data boundary for AI agents over SQL: the LLM plans blind, the boundary validates, labels, approves and audits. Data stays home. Plans cross."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
+authors = [{ name = "the Fondaco contributors" }]
+keywords = [
+    "ai-security", "data-governance", "mcp", "model-context-protocol", "llm",
+    "text-to-sql", "data-classification", "pii", "audit-log", "agents",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -17,6 +36,14 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sqlglot>=30.31,<31",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mrzephyrzero/fondaco"
+Documentation = "https://github.com/mrzephyrzero/fondaco#readme"
+Source = "https://github.com/mrzephyrzero/fondaco"
+Issues = "https://github.com/mrzephyrzero/fondaco/issues"
+Changelog = "https://github.com/mrzephyrzero/fondaco/blob/main/CHANGELOG.md"
+"Threat model" = "https://github.com/mrzephyrzero/fondaco/blob/main/design/threat-model.md"
 
 [project.optional-dependencies]
 # Excel sources for `fondaco discover` only; the boundary never imports it.
@@ -47,6 +74,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.github/assets"]  # the README's demo GIF is served from GitHub
 
 [tool.hatch.build.targets.wheel]
 packages = ["api", "boundary", "planner", "executor"]

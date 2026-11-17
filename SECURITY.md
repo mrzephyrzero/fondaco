@@ -4,8 +4,15 @@
 
 Fondaco is a **reference architecture with a working implementation**, not a
 hardened, maintained product. It demonstrates a data-boundary design for AI
-over enterprise data. Only the latest `main` is in scope; there are no
-supported releases or backports.
+over enterprise data.
+
+| Version | Security fixes |
+|---|---|
+| latest `1.x` release and `main` | ✅ best effort |
+| anything older | ❌ upgrade first |
+
+Fixes land on `main` and ship in the next `1.x` release; there are no
+backports.
 
 The security claim under test — and the honest limits of it — are documented
 in [`design/threat-model.md`](design/threat-model.md) and the README section

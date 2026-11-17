@@ -1,8 +1,9 @@
 # Fondaco
 
 [![CI](https://github.com/mrzephyrzero/fondaco/actions/workflows/ci.yml/badge.svg)](https://github.com/mrzephyrzero/fondaco/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/fondaco.svg)](https://pypi.org/project/fondaco/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/mrzephyrzero/fondaco/blob/main/LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://github.com/mrzephyrzero/fondaco/blob/main/pyproject.toml)
 [![MCP ready](https://img.shields.io/badge/MCP-ready-8A2BE2.svg)](#agents-over-mcp-fondaco-mcp)
 
 **The zero-leakage data firewall and MCP server for AI agents.** Let Claude,
@@ -19,6 +20,13 @@ anything that reads outside the annotated schema, lets a human (or a
 risk-proportional policy) approve it, runs it on a read-only connection,
 suppresses small aggregate groups, and seals every step into an HMAC-chained
 audit log.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mrzephyrzero/fondaco/main/.github/assets/demo.gif"
+       alt="fondaco demo: a hijacked planner asks for the CEO's IBAN and the boundary denies it; an ordinary question is approved and returns a labeled aggregate; the audit log shows every step HMAC-sealed"
+       width="860">
+  <br><sub><code>fondaco demo</code>: an attack prompt is denied before execution, an ordinary question is approved and answered, and every step lands in the sealed audit log.</sub>
+</p>
 
 ```mermaid
 flowchart LR
@@ -48,8 +56,26 @@ flowchart LR
 touches data; the code that touches data is small, deterministic, and can't be
 prompted. Reads are enforced read-only at the database itself, not just in
 code. Fondaco V1 is a **reference architecture with a working implementation**:
-the threat model below is closed and every claim in it has a test, but there
-are no tagged releases yet and no support commitment.
+the threat model below is closed and every claim in it has a test. v1.0 is
+tagged and on PyPI, but there is no support commitment: see
+[`SECURITY.md`](https://github.com/mrzephyrzero/fondaco/blob/main/SECURITY.md) for what that means.
+
+### Is it for you?
+
+- **Yes**, if you want an agent or a chat assistant to answer questions over a
+  SQL database that holds personal or confidential data, and "the model saw a
+  row it shouldn't have" is not an acceptable failure mode.
+- **Yes**, if you need to show an auditor *what* an AI asked for, *who* approved
+  it and *what* left the perimeter, with a log that detects tampering.
+- **Yes**, if you are designing such a system and want a small, tested
+  reference to argue with: three frozen interfaces, a closed threat model, and
+  a red-team suite you can run.
+- **No**, if you need the model to read free text, documents or individual
+  records: Fondaco answers with labeled aggregates and tables within clearance,
+  and is not a RAG pipeline.
+- **No**, if you need statistical privacy guarantees: the k-threshold raises the
+  cost of inference, it does not close it (see
+  [what this does not protect against](#what-this-does-not-protect-against)).
 
 ---
 
@@ -59,10 +85,10 @@ No database to install, no API key. Pick one:
 
 ```sh
 # 1. uv (nothing to install permanently)
-uvx --from "fondaco[duckdb] @ git+https://github.com/mrzephyrzero/fondaco" fondaco demo
+uvx --from "fondaco[duckdb]" fondaco demo
 
 # 2. pip
-pip install "fondaco[duckdb,mcp] @ git+https://github.com/mrzephyrzero/fondaco"
+pip install "fondaco[duckdb,mcp]"
 fondaco demo
 
 # 3. Docker
@@ -106,7 +132,7 @@ Windsurf take the same `mcpServers` block) and restart the client:
     "fondaco": {
       "command": "uvx",
       "args": [
-        "--from", "fondaco[mcp] @ git+https://github.com/mrzephyrzero/fondaco",
+        "--from", "fondaco[mcp]",
         "fondaco", "mcp", "--api-url", "http://localhost:8000"
       ]
     }
@@ -138,7 +164,7 @@ test in this repository.
 | **Audit log tampering** — edit, delete, reorder, rewrite | ❌ usually no audit | ❌ usually no audit | ✅ HMAC-SHA256 chain detects it and halts the boundary; key rotation via `key_id`; tail truncation caught by an external anchor | `test_audit_forgery.py`, `tests/unit/test_audit.py` |
 
 The full attack log — every documented attack, including the ones Fondaco does
-**not** stop — is in [`design/threat-model.md`](design/threat-model.md).
+**not** stop — is in [`design/threat-model.md`](https://github.com/mrzephyrzero/fondaco/blob/main/design/threat-model.md).
 
 ---
 
@@ -393,7 +419,7 @@ tests against a mocked client.
 Fondaco is a reference architecture; this list is deliberately honest. The full
 attack log — every documented attack, each with its outcome, including the ones
 it does not stop — is in
-[`design/threat-model.md`](design/threat-model.md). That pass found and fixed
+[`design/threat-model.md`](https://github.com/mrzephyrzero/fondaco/blob/main/design/threat-model.md). That pass found and fixed
 one critical (a comma-join that hid a restricted table from the label scanner,
 letting PII cross); it is closed and has a regression test. The threat model
 ships *because* it shows real bugs caught, not despite it. Known residual risks:
@@ -486,10 +512,10 @@ Config surface is documented in `.env.example`.
 
 ## Contributing and security
 
-Contributions are welcome — read [`CONTRIBUTING.md`](CONTRIBUTING.md) first:
+Contributions are welcome — read [`CONTRIBUTING.md`](https://github.com/mrzephyrzero/fondaco/blob/main/CONTRIBUTING.md) first:
 the three interfaces in `design/` are frozen and change only through a
 versioned request, and anything under `boundary/` is security code with its
 own rules. Report vulnerabilities privately as described in
-[`SECURITY.md`](SECURITY.md), never in a public issue.
+[`SECURITY.md`](https://github.com/mrzephyrzero/fondaco/blob/main/SECURITY.md), never in a public issue.
 
-Licensed under [Apache-2.0](LICENSE).
+Licensed under [Apache-2.0](https://github.com/mrzephyrzero/fondaco/blob/main/LICENSE).
