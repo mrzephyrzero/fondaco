@@ -294,3 +294,18 @@ def test_execution_failure_marks_plan_failed_and_is_audited(tmp_path):
     from boundary.audit import AuditLog
 
     assert AuditLog(audit_path).verify().ok is True
+
+
+def test_htmx_ask_navigates_instead_of_swapping_a_page_into_the_form(tmp_path):
+    # htmx follows a 303 inside its XHR and would nest the plan page in the
+    # form; an htmx post must get HX-Redirect so the browser navigates.
+    client, _, _ = _mk(tmp_path, _good_steps())
+    response = client.post(
+        "/ask",
+        data={"question": "How many orders per region?"},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 204
+    assert response.headers["hx-redirect"].startswith("/plans/")
+    assert client.get(response.headers["hx-redirect"]).status_code == 200

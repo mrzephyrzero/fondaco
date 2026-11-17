@@ -532,6 +532,14 @@ def create_app(
                     record.status = APPROVED
         return plan_id, None
 
+    def ui_redirect(request: Request, url: str) -> Response:
+        # The ask form posts through htmx, whose XHR follows a 303 silently and
+        # would swap the whole target page inside the form. Tell htmx to
+        # navigate instead; a plain form post still gets the ordinary 303.
+        if request.headers.get("hx-request") == "true":
+            return Response(status_code=204, headers={"HX-Redirect": url})
+        return RedirectResponse(url, status_code=303)
+
     @app.post("/ask")
     async def ask(request: Request):
         current, refused = await ui_post_guard(request)
@@ -542,11 +550,11 @@ def create_app(
         else:
             question = str((await request.form()).get("question", "")).strip()
         if not question:
-            return RedirectResponse("/?error=empty+question", status_code=303)
+            return ui_redirect(request, "/?error=empty+question")
         plan_id, error = propose(question, budget_key(current))
         if error is not None:
-            return RedirectResponse(f"/?error=planner+failed:+{error['code']}", status_code=303)
-        return RedirectResponse(f"/plans/{plan_id}", status_code=303)
+            return ui_redirect(request, f"/?error=planner+failed:+{error['code']}")
+        return ui_redirect(request, f"/plans/{plan_id}")
 
     # ── JSON API (/api/v1) — the surface the MCP server proxies ──────────
     # Deliberately no approve or reject endpoint: a client (an agent) can
